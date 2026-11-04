@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Reglas base del sprint: perfil protegido y el resto solo para autenticados.
+// Pendiente: restringir productos, pedidos, repartidores y privado por rol y dueño.
+// No usar un comodín general /{document=**}: las reglas se suman y anularía
+// las protecciones del perfil.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    match /perfiles/{uid} {
+      allow read: if autenticado();
+      // Al registrarse, el rol solo puede ser cliente.
+      allow create: if autenticado()
+        && request.auth.uid == uid
+        && request.resource.data.rol == 'cliente';
+      // Nadie cambia su propio rol; los roles se asignan en Firebase Console.
+      allow update: if autenticado()
+        && request.auth.uid == uid
+        && request.resource.data.rol == resource.data.rol;
+      allow delete: if false;
+    }
+
+    match /productos/{id} {
+      allow read, write: if autenticado();
+    }
+
+    match /repartidores/{uid} {
+      allow read, write: if autenticado();
+    }
+
+    match /pedidos/{id} {
+      allow read, write: if autenticado();
+
+      match /privado/{doc} {
+        allow read, write: if autenticado();
+      }
+    }
+  }
+}

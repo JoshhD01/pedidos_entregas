@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "604999055864",
+    "project_id": "pedidosentregas",
+    "storage_bucket": "pedidosentregas.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:604999055864:android:dc915a0303447e9aae7e0d",
+        "android_client_info": {
+          "package_name": "com.g613.pedidos_entregas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBPCB0ROj7b57f_qKkZL7JfzDnVJrQQTUo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

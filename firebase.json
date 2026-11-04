@@ -1,0 +1,1 @@
+{"firestore":{"rules":"firestore.rules"},"flutter":{"platforms":{"android":{"default":{"projectId":"pedidosentregas","appId":"1:604999055864:android:dc915a0303447e9aae7e0d","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"pedidosentregas","configurations":{"android":"1:604999055864:android:dc915a0303447e9aae7e0d"}}}}}}
