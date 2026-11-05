@@ -9,6 +9,8 @@ import 'remote/auth_remote_data_source.dart';
 import 'remote/perfil_remote_data_source.dart';
 import 'repositories/auth_repository.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/inicio/inicio_segun_rol.dart';
+import 'widgets/boton_cerrar_sesion.dart';
 import 'widgets/error_view.dart';
 
 Future<void> main() async {
@@ -121,7 +123,9 @@ class _CargaPerfilState extends State<CargaPerfil> {
           return Scaffold(
             appBar: AppBar(
               title: const Text('Pedidos y Entregas'),
-              actions: [_BotonCerrarSesion(widget.authRepository)],
+              actions: [
+                BotonCerrarSesion(authRepository: widget.authRepository),
+              ],
             ),
             body: ErrorView(
               mensaje: 'No pudimos cargar tu perfil',
@@ -129,62 +133,11 @@ class _CargaPerfilState extends State<CargaPerfil> {
             ),
           );
         }
-        return InicioTemporal(
+        return InicioSegunRol(
           perfil: perfil,
           authRepository: widget.authRepository,
         );
       },
-    );
-  }
-}
-
-class _BotonCerrarSesion extends StatelessWidget {
-  final AuthRepository authRepository;
-
-  const _BotonCerrarSesion(this.authRepository);
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: 'Cerrar sesión',
-      onPressed: authRepository.cerrarSesion,
-      icon: const Icon(Icons.logout),
-    );
-  }
-}
-
-/// Pantalla temporal hasta que exista el inicio según el rol (T7).
-class InicioTemporal extends StatelessWidget {
-  final Perfil perfil;
-  final AuthRepository authRepository;
-
-  const InicioTemporal({
-    super.key,
-    required this.perfil,
-    required this.authRepository,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pedidos y Entregas'),
-        actions: [_BotonCerrarSesion(authRepository)],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.delivery_dining, size: 72, color: colors.primary),
-            const SizedBox(height: 16),
-            Text('Hola, ${perfil.nombre}'),
-            const SizedBox(height: 8),
-            Text('Rol: ${perfil.rol.valor}'),
-          ],
-        ),
-      ),
     );
   }
 }
