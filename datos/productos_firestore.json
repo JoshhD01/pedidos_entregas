@@ -1,0 +1,10 @@
+[
+  { "id": "p001", "nombre": "Hamburguesa clásica", "precio": 18000, "stock": 1 },
+  { "id": "p002", "nombre": "Pizza personal", "precio": 23000, "stock": 20 },
+  { "id": "p003", "nombre": "Empanadas x3", "precio": 9000, "stock": 20 },
+  { "id": "p004", "nombre": "Ensalada de pollo", "precio": 16000, "stock": 20 },
+  { "id": "p005", "nombre": "Arepa con queso", "precio": 7000, "stock": 20 },
+  { "id": "p006", "nombre": "Limonada natural", "precio": 6000, "stock": 20 },
+  { "id": "p007", "nombre": "Café frío", "precio": 7500, "stock": 20 },
+  { "id": "p008", "nombre": "Brownie", "precio": 5500, "stock": 20 }
+]

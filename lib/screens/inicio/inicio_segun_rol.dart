@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/perfil.dart';
 import '../../repositories/auth_repository.dart';
+import '../../repositories/producto_repository.dart';
 import 'inicio_cliente.dart';
 import 'inicio_operador.dart';
 import 'inicio_repartidor.dart';
@@ -11,11 +12,13 @@ import 'inicio_repartidor.dart';
 class InicioSegunRol extends StatelessWidget {
   final Perfil perfil;
   final AuthRepository authRepository;
+  final ProductoRepository productoRepository;
 
   const InicioSegunRol({
     super.key,
     required this.perfil,
     required this.authRepository,
+    required this.productoRepository,
   });
 
   @override
@@ -24,6 +27,7 @@ class InicioSegunRol extends StatelessWidget {
       Rol.cliente => InicioCliente(
         perfil: perfil,
         authRepository: authRepository,
+        productoRepository: productoRepository,
       ),
       Rol.operador => InicioOperador(
         perfil: perfil,

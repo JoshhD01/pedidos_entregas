@@ -9,6 +9,16 @@ class AuthException implements Exception {
   String toString() => mensaje;
 }
 
+/// Falló una petición HTTP. `mensaje` se muestra al usuario tal cual.
+class ApiException implements Exception {
+  final String mensaje;
+
+  const ApiException(this.mensaje);
+
+  @override
+  String toString() => mensaje;
+}
+
 /// Una regla del negocio impidió la operación, por ejemplo falta de stock.
 /// `mensaje` se muestra al usuario tal cual.
 class ReglaDeNegocioException implements Exception {

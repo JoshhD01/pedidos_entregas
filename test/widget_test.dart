@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pedidos_entregas/core/errores.dart';
 import 'package:pedidos_entregas/main.dart';
 import 'package:pedidos_entregas/models/perfil.dart';
+import 'package:pedidos_entregas/models/producto.dart';
 import 'package:pedidos_entregas/repositories/auth_repository.dart';
+import 'package:pedidos_entregas/repositories/producto_repository.dart';
 import 'package:pedidos_entregas/screens/auth/login_screen.dart';
 import 'package:pedidos_entregas/screens/inicio/inicio_cliente.dart';
 import 'package:pedidos_entregas/screens/inicio/inicio_operador.dart';
@@ -62,8 +64,22 @@ class FakeAuthRepository implements AuthRepository {
   }
 }
 
+class FakeProductoRepository implements ProductoRepository {
+  @override
+  Future<ResultadoCatalogo> obtenerCatalogo() async =>
+      const ResultadoCatalogo([]);
+
+  @override
+  Future<ProductoOperativo?> obtenerOperativo(String productoId) async => null;
+}
+
+Widget app(FakeAuthRepository auth) => PedidosEntregasApp(
+  authRepository: auth,
+  productoRepository: FakeProductoRepository(),
+);
+
 Future<void> abrirApp(WidgetTester tester, FakeAuthRepository auth) async {
-  await tester.pumpWidget(PedidosEntregasApp(authRepository: auth));
+  await tester.pumpWidget(app(auth));
   auth.sesion.add(null);
   await tester.pump();
   await tester.pump();
@@ -109,7 +125,7 @@ void main() {
       tester,
     ) async {
       final auth = FakeAuthRepository();
-      await tester.pumpWidget(PedidosEntregasApp(authRepository: auth));
+      await tester.pumpWidget(app(auth));
       auth.sesion.add('uid1');
       await tester.pumpAndSettle();
       expect(find.textContaining('Hola, Nombre uid1'), findsOneWidget);
@@ -127,7 +143,7 @@ void main() {
       WidgetTester tester,
       FakeAuthRepository auth,
     ) async {
-      await tester.pumpWidget(PedidosEntregasApp(authRepository: auth));
+      await tester.pumpWidget(app(auth));
       auth.sesion.add('uid1');
       await tester.pumpAndSettle();
     }

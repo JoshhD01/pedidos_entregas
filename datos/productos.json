@@ -1,0 +1,58 @@
+[
+  {
+    "id": "p001",
+    "nombre": "Hamburguesa clásica",
+    "categoria": "Comida",
+    "descripcion": "Carne, queso, lechuga y tomate en pan artesanal.",
+    "precio": 18000
+  },
+  {
+    "id": "p002",
+    "nombre": "Pizza personal",
+    "categoria": "Comida",
+    "descripcion": "Pizza de queso y jamón de 20 centímetros.",
+    "precio": 22000
+  },
+  {
+    "id": "p003",
+    "nombre": "Empanadas x3",
+    "categoria": "Comida",
+    "descripcion": "Tres empanadas de carne con salsa de la casa.",
+    "precio": 9000
+  },
+  {
+    "id": "p004",
+    "nombre": "Ensalada de pollo",
+    "categoria": "Comida",
+    "descripcion": "Pollo a la plancha, lechuga, maíz y aderezo.",
+    "precio": 16000
+  },
+  {
+    "id": "p005",
+    "nombre": "Arepa con queso",
+    "categoria": "Comida",
+    "descripcion": "Arepa de maíz asada con queso fundido.",
+    "precio": 7000
+  },
+  {
+    "id": "p006",
+    "nombre": "Limonada natural",
+    "categoria": "Bebidas",
+    "descripcion": "Limonada recién preparada de 400 mililitros.",
+    "precio": 6000
+  },
+  {
+    "id": "p007",
+    "nombre": "Café frío",
+    "categoria": "Bebidas",
+    "descripcion": "Café con leche y hielo de 350 mililitros.",
+    "precio": 7500
+  },
+  {
+    "id": "p008",
+    "nombre": "Brownie",
+    "categoria": "Postres",
+    "descripcion": "Brownie de chocolate con nueces.",
+    "precio": 5500
+  }
+]

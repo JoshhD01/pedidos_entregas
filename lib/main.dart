@@ -4,14 +4,21 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
+import 'local/app_database.dart';
+import 'local/producto_local_data_source.dart';
 import 'models/perfil.dart';
 import 'remote/auth_remote_data_source.dart';
 import 'remote/perfil_remote_data_source.dart';
+import 'remote/producto_remote_data_source.dart';
 import 'repositories/auth_repository.dart';
+import 'repositories/producto_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/inicio/inicio_segun_rol.dart';
+import 'services/producto_service.dart';
 import 'widgets/boton_cerrar_sesion.dart';
 import 'widgets/error_view.dart';
+
+const catalogoUrl = 'https://dummyjson.com/c/59f3-0f90-41f6-952e';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,13 +29,29 @@ Future<void> main() async {
     perfiles: PerfilRemoteDataSource(FirebaseFirestore.instance),
   );
 
-  runApp(PedidosEntregasApp(authRepository: authRepository));
+  final productoRepository = ProductoRepositoryImpl(
+    service: ProductoService(catalogoUrl),
+    local: ProductoLocalDataSource(AppDatabase()),
+    remote: ProductoRemoteDataSource(FirebaseFirestore.instance),
+  );
+
+  runApp(
+    PedidosEntregasApp(
+      authRepository: authRepository,
+      productoRepository: productoRepository,
+    ),
+  );
 }
 
 class PedidosEntregasApp extends StatelessWidget {
   final AuthRepository authRepository;
+  final ProductoRepository productoRepository;
 
-  const PedidosEntregasApp({super.key, required this.authRepository});
+  const PedidosEntregasApp({
+    super.key,
+    required this.authRepository,
+    required this.productoRepository,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +61,10 @@ class PedidosEntregasApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepOrange),
       ),
-      home: RaizSesion(authRepository: authRepository),
+      home: RaizSesion(
+        authRepository: authRepository,
+        productoRepository: productoRepository,
+      ),
     );
   }
 }
@@ -46,8 +72,13 @@ class PedidosEntregasApp extends StatelessWidget {
 /// Decide qué mostrar según la sesión. Restaura una sesión existente sola.
 class RaizSesion extends StatefulWidget {
   final AuthRepository authRepository;
+  final ProductoRepository productoRepository;
 
-  const RaizSesion({super.key, required this.authRepository});
+  const RaizSesion({
+    super.key,
+    required this.authRepository,
+    required this.productoRepository,
+  });
 
   @override
   State<RaizSesion> createState() => _RaizSesionState();
@@ -77,6 +108,7 @@ class _RaizSesionState extends State<RaizSesion> {
           key: ValueKey(uid),
           uid: uid,
           authRepository: widget.authRepository,
+          productoRepository: widget.productoRepository,
         );
       },
     );
@@ -87,11 +119,13 @@ class _RaizSesionState extends State<RaizSesion> {
 class CargaPerfil extends StatefulWidget {
   final String uid;
   final AuthRepository authRepository;
+  final ProductoRepository productoRepository;
 
   const CargaPerfil({
     super.key,
     required this.uid,
     required this.authRepository,
+    required this.productoRepository,
   });
 
   @override
@@ -136,6 +170,7 @@ class _CargaPerfilState extends State<CargaPerfil> {
         return InicioSegunRol(
           perfil: perfil,
           authRepository: widget.authRepository,
+          productoRepository: widget.productoRepository,
         );
       },
     );
