@@ -16,6 +16,9 @@ class FakeAuthRepository implements AuthRepository {
   int intentosIngreso = 0;
   int intentosRegistro = 0;
   int cierresSesion = 0;
+  int consultasPerfil = 0;
+  Object? errorPerfil;
+  Rol rol = Rol.cliente;
 
   @override
   Stream<String?> observarSesion() => sesion.stream;
@@ -49,7 +52,11 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<Perfil> obtenerPerfil(String uid) => throw UnimplementedError();
+  Future<Perfil> obtenerPerfil(String uid) async {
+    consultasPerfil++;
+    if (errorPerfil != null) throw errorPerfil!;
+    return Perfil(uid: uid, nombre: 'Nombre $uid', email: 'a@b.co', rol: rol);
+  }
 }
 
 Future<void> abrirApp(WidgetTester tester, FakeAuthRepository auth) async {
@@ -101,15 +108,81 @@ void main() {
       final auth = FakeAuthRepository();
       await tester.pumpWidget(PedidosEntregasApp(authRepository: auth));
       auth.sesion.add('uid1');
-      await tester.pump();
-      await tester.pump();
-      expect(find.text('Sesión iniciada'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.text('Hola, Nombre uid1'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Cerrar sesión'));
       await tester.pump();
       await tester.pump();
       expect(auth.cierresSesion, 1);
       expect(find.byType(LoginScreen), findsOneWidget);
+    });
+  });
+
+  group('perfil', () {
+    Future<void> abrirConSesion(
+      WidgetTester tester,
+      FakeAuthRepository auth,
+    ) async {
+      await tester.pumpWidget(PedidosEntregasApp(authRepository: auth));
+      auth.sesion.add('uid1');
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('muestra el rol guardado', (tester) async {
+      final auth = FakeAuthRepository()..rol = Rol.operador;
+      await abrirConSesion(tester, auth);
+      expect(find.text('Rol: operador'), findsOneWidget);
+    });
+
+    testWidgets('un rol desconocido no entra: error con reintentar', (
+      tester,
+    ) async {
+      final auth = FakeAuthRepository()
+        ..errorPerfil = const FormatException('Rol desconocido: admin');
+      await abrirConSesion(tester, auth);
+
+      expect(find.textContaining('Hola'), findsNothing);
+      expect(find.textContaining('Rol desconocido'), findsNothing);
+      expect(find.text('No pudimos cargar tu perfil'), findsOneWidget);
+      expect(find.text('Reintentar'), findsOneWidget);
+    });
+
+    testWidgets('reintentar vuelve a consultar y entra', (tester) async {
+      final auth = FakeAuthRepository()..errorPerfil = StateError('sin red');
+      await abrirConSesion(tester, auth);
+      expect(auth.consultasPerfil, 1);
+
+      auth.errorPerfil = null;
+      await tester.tap(find.text('Reintentar'));
+      await tester.pumpAndSettle();
+
+      expect(auth.consultasPerfil, 2);
+      expect(find.text('Hola, Nombre uid1'), findsOneWidget);
+    });
+
+    testWidgets('con error de perfil se puede cerrar sesión', (tester) async {
+      final auth = FakeAuthRepository()..errorPerfil = StateError('sin red');
+      await abrirConSesion(tester, auth);
+
+      await tester.tap(find.byTooltip('Cerrar sesión'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginScreen), findsOneWidget);
+    });
+
+    testWidgets('cambiar de cuenta consulta el perfil de la nueva', (
+      tester,
+    ) async {
+      final auth = FakeAuthRepository();
+      await abrirConSesion(tester, auth);
+      expect(find.text('Hola, Nombre uid1'), findsOneWidget);
+
+      auth.sesion.add('uid2');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hola, Nombre uid1'), findsNothing);
+      expect(find.text('Hola, Nombre uid2'), findsOneWidget);
     });
   });
 
@@ -176,9 +249,8 @@ void main() {
       expect(auth.intentosIngreso, 1);
 
       auth.espera!.complete();
-      await tester.pump();
-      await tester.pump();
-      expect(find.text('Sesión iniciada'), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.text('Hola, Nombre uid1'), findsOneWidget);
     });
   });
 
@@ -207,7 +279,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(auth.intentosRegistro, 1);
-      expect(find.text('Sesión iniciada'), findsOneWidget);
+      expect(find.text('Hola, Nombre uid1'), findsOneWidget);
     });
 
     testWidgets('un correo existente muestra el mensaje y sigue en registro', (

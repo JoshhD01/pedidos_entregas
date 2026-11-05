@@ -1,18 +1,23 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
+import 'models/perfil.dart';
 import 'remote/auth_remote_data_source.dart';
+import 'remote/perfil_remote_data_source.dart';
 import 'repositories/auth_repository.dart';
 import 'screens/auth/login_screen.dart';
+import 'widgets/error_view.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   final authRepository = FirebaseAuthRepository(
-    AuthRemoteDataSource(FirebaseAuth.instance),
+    auth: AuthRemoteDataSource(FirebaseAuth.instance),
+    perfiles: PerfilRemoteDataSource(FirebaseFirestore.instance),
   );
 
   runApp(PedidosEntregasApp(authRepository: authRepository));
@@ -60,20 +65,104 @@ class _RaizSesionState extends State<RaizSesion> {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        if (snapshot.data == null) {
+        final uid = snapshot.data;
+        if (uid == null) {
           return LoginScreen(authRepository: widget.authRepository);
         }
-        return InicioTemporal(authRepository: widget.authRepository);
+        // La llave crea una pantalla nueva al cambiar de cuenta, para que nunca
+        // se muestre el perfil de la cuenta anterior.
+        return CargaPerfil(
+          key: ValueKey(uid),
+          uid: uid,
+          authRepository: widget.authRepository,
+        );
       },
+    );
+  }
+}
+
+/// Consulta el perfil. Sin un perfil válido no se entra a ninguna pantalla.
+class CargaPerfil extends StatefulWidget {
+  final String uid;
+  final AuthRepository authRepository;
+
+  const CargaPerfil({
+    super.key,
+    required this.uid,
+    required this.authRepository,
+  });
+
+  @override
+  State<CargaPerfil> createState() => _CargaPerfilState();
+}
+
+class _CargaPerfilState extends State<CargaPerfil> {
+  // Se guarda para que reconstruir la pantalla no repita la consulta.
+  late Future<Perfil> _perfil = widget.authRepository.obtenerPerfil(widget.uid);
+
+  void _reintentar() {
+    setState(() {
+      _perfil = widget.authRepository.obtenerPerfil(widget.uid);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Perfil>(
+      future: _perfil,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final perfil = snapshot.data;
+        if (snapshot.hasError || perfil == null) {
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('Pedidos y Entregas'),
+              actions: [_BotonCerrarSesion(widget.authRepository)],
+            ),
+            body: ErrorView(
+              mensaje: 'No pudimos cargar tu perfil',
+              onReintentar: _reintentar,
+            ),
+          );
+        }
+        return InicioTemporal(
+          perfil: perfil,
+          authRepository: widget.authRepository,
+        );
+      },
+    );
+  }
+}
+
+class _BotonCerrarSesion extends StatelessWidget {
+  final AuthRepository authRepository;
+
+  const _BotonCerrarSesion(this.authRepository);
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Cerrar sesión',
+      onPressed: authRepository.cerrarSesion,
+      icon: const Icon(Icons.logout),
     );
   }
 }
 
 /// Pantalla temporal hasta que exista el inicio según el rol (T7).
 class InicioTemporal extends StatelessWidget {
+  final Perfil perfil;
   final AuthRepository authRepository;
 
-  const InicioTemporal({super.key, required this.authRepository});
+  const InicioTemporal({
+    super.key,
+    required this.perfil,
+    required this.authRepository,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -82,13 +171,7 @@ class InicioTemporal extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pedidos y Entregas'),
-        actions: [
-          IconButton(
-            tooltip: 'Cerrar sesión',
-            onPressed: authRepository.cerrarSesion,
-            icon: const Icon(Icons.logout),
-          ),
-        ],
+        actions: [_BotonCerrarSesion(authRepository)],
       ),
       body: Center(
         child: Column(
@@ -96,7 +179,9 @@ class InicioTemporal extends StatelessWidget {
           children: [
             Icon(Icons.delivery_dining, size: 72, color: colors.primary),
             const SizedBox(height: 16),
-            const Text('Sesión iniciada'),
+            Text('Hola, ${perfil.nombre}'),
+            const SizedBox(height: 8),
+            Text('Rol: ${perfil.rol.valor}'),
           ],
         ),
       ),

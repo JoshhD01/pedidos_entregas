@@ -9,8 +9,16 @@ class AuthRemoteDataSource {
   Stream<String?> observarUid() =>
       auth.authStateChanges().map((usuario) => usuario?.uid);
 
-  Future<void> crearCuenta(String email, String password) =>
-      auth.createUserWithEmailAndPassword(email: email, password: password);
+  String? get emailActual => auth.currentUser?.email;
+
+  /// Devuelve el uid de la cuenta creada.
+  Future<String> crearCuenta(String email, String password) async {
+    final credencial = await auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    return credencial.user!.uid;
+  }
 
   Future<void> iniciarSesion(String email, String password) =>
       auth.signInWithEmailAndPassword(email: email, password: password);

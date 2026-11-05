@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuthException;
 import '../core/errores.dart';
 import '../models/perfil.dart';
 import '../remote/auth_remote_data_source.dart';
+import '../remote/perfil_remote_data_source.dart';
 
 /// Sesión y perfil del usuario.
 abstract class AuthRepository {
@@ -22,7 +23,9 @@ abstract class AuthRepository {
 
   Future<void> cerrarSesion();
 
-  /// Lanza `FormatException` si el rol es desconocido.
+  /// Si la cuenta no tiene perfil, lo crea con rol cliente.
+  /// Lanza `FormatException` si el rol es desconocido, y otros errores si no
+  /// se pudo consultar. Nunca devuelve un rol que no esté guardado.
   Future<Perfil> obtenerPerfil(String uid);
 }
 
@@ -53,12 +56,20 @@ String mensajeDeErrorAuth(String codigo) {
 }
 
 class FirebaseAuthRepository implements AuthRepository {
-  final AuthRemoteDataSource remote;
+  final AuthRemoteDataSource auth;
+  final PerfilRemoteDataSource perfiles;
 
-  FirebaseAuthRepository(this.remote);
+  /// Firestore puede esperar indefinidamente sin conexión.
+  final Duration tiempoLimite;
+
+  FirebaseAuthRepository({
+    required this.auth,
+    required this.perfiles,
+    this.tiempoLimite = const Duration(seconds: 10),
+  });
 
   @override
-  Stream<String?> observarSesion() => remote.observarUid();
+  Stream<String?> observarSesion() => auth.observarUid();
 
   @override
   Future<void> registrar({
@@ -66,10 +77,22 @@ class FirebaseAuthRepository implements AuthRepository {
     required String email,
     required String password,
   }) async {
+    final String uid;
     try {
-      await remote.crearCuenta(email, password);
+      uid = await auth.crearCuenta(email, password);
     } on FirebaseAuthException catch (error) {
       throw AuthException(mensajeDeErrorAuth(error.code));
+    }
+
+    try {
+      await perfiles
+          .guardar(
+            Perfil(uid: uid, nombre: nombre, email: email, rol: Rol.cliente),
+          )
+          .timeout(tiempoLimite);
+    } catch (_) {
+      // La cuenta ya existe: reportar error haría que el usuario intente
+      // registrarse de nuevo. `obtenerPerfil` crea el perfil que faltó.
     }
   }
 
@@ -79,17 +102,34 @@ class FirebaseAuthRepository implements AuthRepository {
     required String password,
   }) async {
     try {
-      await remote.iniciarSesion(email, password);
+      await auth.iniciarSesion(email, password);
     } on FirebaseAuthException catch (error) {
       throw AuthException(mensajeDeErrorAuth(error.code));
     }
   }
 
   @override
-  Future<void> cerrarSesion() => remote.cerrarSesion();
+  Future<void> cerrarSesion() => auth.cerrarSesion();
 
   @override
-  Future<Perfil> obtenerPerfil(String uid) {
-    throw UnimplementedError('Se implementa en T6');
+  Future<Perfil> obtenerPerfil(String uid) async {
+    final guardado = await perfiles.obtener(uid).timeout(tiempoLimite);
+    if (guardado != null) return Perfil.fromFirestore(uid, guardado);
+
+    final creado = await perfiles
+        .crearSiNoExiste(_perfilBasico(uid))
+        .timeout(tiempoLimite);
+    return Perfil.fromFirestore(uid, creado);
+  }
+
+  /// Perfil de una cuenta que quedó sin él: siempre con rol cliente.
+  Perfil _perfilBasico(String uid) {
+    final email = auth.emailActual ?? '';
+    return Perfil(
+      uid: uid,
+      nombre: email.split('@').first,
+      email: email,
+      rol: Rol.cliente,
+    );
   }
 }
