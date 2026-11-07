@@ -5,12 +5,15 @@ import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'local/app_database.dart';
+import 'local/pedido_local_data_source.dart';
 import 'local/producto_local_data_source.dart';
 import 'models/perfil.dart';
 import 'remote/auth_remote_data_source.dart';
+import 'remote/pedido_remote_data_source.dart';
 import 'remote/perfil_remote_data_source.dart';
 import 'remote/producto_remote_data_source.dart';
 import 'repositories/auth_repository.dart';
+import 'repositories/pedido_repository.dart';
 import 'repositories/producto_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/inicio/inicio_segun_rol.dart';
@@ -29,16 +32,24 @@ Future<void> main() async {
     perfiles: PerfilRemoteDataSource(FirebaseFirestore.instance),
   );
 
+  final db = AppDatabase();
+
   final productoRepository = ProductoRepositoryImpl(
     service: ProductoService(catalogoUrl),
-    local: ProductoLocalDataSource(AppDatabase()),
+    local: ProductoLocalDataSource(db),
     remote: ProductoRemoteDataSource(FirebaseFirestore.instance),
+  );
+
+  final pedidoRepository = PedidoRepositoryImpl(
+    local: PedidoLocalDataSource(db),
+    remote: PedidoRemoteDataSource(FirebaseFirestore.instance),
   );
 
   runApp(
     PedidosEntregasApp(
       authRepository: authRepository,
       productoRepository: productoRepository,
+      pedidoRepository: pedidoRepository,
     ),
   );
 }
@@ -46,11 +57,13 @@ Future<void> main() async {
 class PedidosEntregasApp extends StatelessWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
+  final PedidoRepository pedidoRepository;
 
   const PedidosEntregasApp({
     super.key,
     required this.authRepository,
     required this.productoRepository,
+    required this.pedidoRepository,
   });
 
   @override
@@ -64,6 +77,7 @@ class PedidosEntregasApp extends StatelessWidget {
       home: RaizSesion(
         authRepository: authRepository,
         productoRepository: productoRepository,
+        pedidoRepository: pedidoRepository,
       ),
     );
   }
@@ -73,11 +87,13 @@ class PedidosEntregasApp extends StatelessWidget {
 class RaizSesion extends StatefulWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
+  final PedidoRepository pedidoRepository;
 
   const RaizSesion({
     super.key,
     required this.authRepository,
     required this.productoRepository,
+    required this.pedidoRepository,
   });
 
   @override
@@ -109,6 +125,7 @@ class _RaizSesionState extends State<RaizSesion> {
           uid: uid,
           authRepository: widget.authRepository,
           productoRepository: widget.productoRepository,
+          pedidoRepository: widget.pedidoRepository,
         );
       },
     );
@@ -120,12 +137,14 @@ class CargaPerfil extends StatefulWidget {
   final String uid;
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
+  final PedidoRepository pedidoRepository;
 
   const CargaPerfil({
     super.key,
     required this.uid,
     required this.authRepository,
     required this.productoRepository,
+    required this.pedidoRepository,
   });
 
   @override
@@ -171,6 +190,7 @@ class _CargaPerfilState extends State<CargaPerfil> {
           perfil: perfil,
           authRepository: widget.authRepository,
           productoRepository: widget.productoRepository,
+          pedidoRepository: widget.pedidoRepository,
         );
       },
     );

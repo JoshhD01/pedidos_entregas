@@ -1,15 +1,44 @@
 import 'package:flutter/material.dart';
 
 import '../../core/formato.dart';
+import '../../models/linea_pedido.dart';
 import '../../models/producto.dart';
+import '../../widgets/selector_cantidad.dart';
 
-class ProductoDetalleScreen extends StatelessWidget {
+class ProductoDetalleScreen extends StatefulWidget {
   final Producto producto;
 
-  const ProductoDetalleScreen({super.key, required this.producto});
+  final ValueChanged<LineaPedido>? onAgregar;
+
+  const ProductoDetalleScreen({
+    super.key,
+    required this.producto,
+    this.onAgregar,
+  });
+
+  @override
+  State<ProductoDetalleScreen> createState() => _ProductoDetalleScreenState();
+}
+
+class _ProductoDetalleScreenState extends State<ProductoDetalleScreen> {
+  int _cantidad = 1;
+
+  void _agregar() {
+    final producto = widget.producto;
+    widget.onAgregar!(
+      LineaPedido(
+        productoId: producto.id,
+        nombreProducto: producto.nombre,
+        cantidad: _cantidad,
+        precioUnitario: producto.precioReferencia,
+      ),
+    );
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final producto = widget.producto;
     final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -52,6 +81,30 @@ class ProductoDetalleScreen extends StatelessWidget {
           ],
         ),
       ),
+      bottomNavigationBar: widget.onAgregar == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    SelectorCantidad(
+                      cantidad: _cantidad,
+                      onCambiar: (cantidad) =>
+                          setState(() => _cantidad = cantidad),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _agregar,
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text('Agregar al carrito'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
