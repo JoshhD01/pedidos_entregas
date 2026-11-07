@@ -9,6 +9,7 @@ import '../../repositories/producto_repository.dart';
 import '../../widgets/boton_cerrar_sesion.dart';
 import '../catalogo/catalogo_vista.dart';
 import '../pedidos/carrito_screen.dart';
+import '../pedidos/mis_pedidos_screen.dart';
 
 class InicioCliente extends StatefulWidget {
   final Perfil perfil;
@@ -64,6 +65,18 @@ class _InicioClienteState extends State<InicioCliente> {
     );
   }
 
+  void _abrirMisPedidos() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MisPedidosScreen(
+          pedidoRepository: widget.pedidoRepository,
+          clienteUid: widget.perfil.uid,
+        ),
+      ),
+    );
+  }
+
   Future<void> _abrirCarrito() async {
     final creado = await Navigator.push<Pedido>(
       context,
@@ -76,9 +89,12 @@ class _InicioClienteState extends State<InicioCliente> {
       ),
     );
     if (creado == null || !mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Pedido creado.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Pedido creado.'),
+        action: SnackBarAction(label: 'Ver', onPressed: _abrirMisPedidos),
+      ),
+    );
   }
 
   @override
@@ -87,6 +103,11 @@ class _InicioClienteState extends State<InicioCliente> {
       appBar: AppBar(
         title: const Text('Catálogo'),
         actions: [
+          IconButton(
+            tooltip: 'Mis pedidos',
+            onPressed: _abrirMisPedidos,
+            icon: const Icon(Icons.receipt_long_outlined),
+          ),
           ValueListenableBuilder<List<LineaPedido>>(
             valueListenable: _carrito,
             builder: (context, lineas, _) => IconButton(
