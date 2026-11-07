@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/errores.dart';
+import '../../models/linea_pedido.dart';
 import '../../models/producto.dart';
 import '../../repositories/producto_repository.dart';
 import '../../widgets/empty_view.dart';
@@ -12,7 +13,13 @@ import 'producto_detalle_screen.dart';
 class CatalogoVista extends StatefulWidget {
   final ProductoRepository productoRepository;
 
-  const CatalogoVista({super.key, required this.productoRepository});
+  final ValueChanged<LineaPedido>? onAgregar;
+
+  const CatalogoVista({
+    super.key,
+    required this.productoRepository,
+    this.onAgregar,
+  });
 
   @override
   State<CatalogoVista> createState() => _CatalogoVistaState();
@@ -33,7 +40,10 @@ class _CatalogoVistaState extends State<CatalogoVista> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ProductoDetalleScreen(producto: producto),
+        builder: (_) => ProductoDetalleScreen(
+          producto: producto,
+          onAgregar: widget.onAgregar,
+        ),
       ),
     );
   }

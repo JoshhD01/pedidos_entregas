@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pedidos_entregas/core/errores.dart';
 import 'package:pedidos_entregas/main.dart';
+import 'package:pedidos_entregas/models/pedido.dart';
 import 'package:pedidos_entregas/models/perfil.dart';
 import 'package:pedidos_entregas/models/producto.dart';
 import 'package:pedidos_entregas/repositories/auth_repository.dart';
+import 'package:pedidos_entregas/repositories/pedido_repository.dart';
 import 'package:pedidos_entregas/repositories/producto_repository.dart';
 import 'package:pedidos_entregas/screens/auth/login_screen.dart';
 import 'package:pedidos_entregas/screens/inicio/inicio_cliente.dart';
@@ -73,9 +75,18 @@ class FakeProductoRepository implements ProductoRepository {
   Future<ProductoOperativo?> obtenerOperativo(String productoId) async => null;
 }
 
+class FakePedidoRepository implements PedidoRepository {
+  @override
+  Stream<List<Pedido>> observarBandejaOperador() => Stream.value(const []);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 Widget app(FakeAuthRepository auth) => PedidosEntregasApp(
   authRepository: auth,
   productoRepository: FakeProductoRepository(),
+  pedidoRepository: FakePedidoRepository(),
 );
 
 Future<void> abrirApp(WidgetTester tester, FakeAuthRepository auth) async {
