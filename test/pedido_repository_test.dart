@@ -1,4 +1,6 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pedidos_entregas/core/errores.dart';
 import 'package:pedidos_entregas/local/app_database.dart';
@@ -6,6 +8,8 @@ import 'package:pedidos_entregas/local/pedido_local_data_source.dart';
 import 'package:pedidos_entregas/models/estado_pedido.dart';
 import 'package:pedidos_entregas/models/estado_sync.dart';
 import 'package:pedidos_entregas/models/linea_pedido.dart';
+import 'package:pedidos_entregas/models/pedido.dart';
+import 'package:pedidos_entregas/remote/pedido_remote_data_source.dart';
 import 'package:pedidos_entregas/repositories/pedido_repository.dart';
 
 const hamburguesa = LineaPedido(
@@ -28,15 +32,60 @@ LineaPedido linea(String id, {int cantidad = 1}) => LineaPedido(
   precioUnitario: 1000,
 );
 
+Pedido pendiente(String id, {String clienteUid = 'cliente-1'}) => Pedido(
+  id: id,
+  clienteUid: clienteUid,
+  lineas: const [hamburguesa],
+  direccion: 'Calle 1',
+  estado: EstadoPedido.creado,
+  createdAt: DateTime(2026, 11, 5, 10),
+  updatedAt: DateTime(2026, 11, 5, 10),
+  estadoSync: EstadoSync.pendiente,
+  codigoRecepcion: '123456',
+);
+
+FirebaseException errorFirestore(String code) =>
+    FirebaseException(plugin: 'cloud_firestore', code: code);
+
+/// Sin conexión por defecto.
+class FakeRemote implements PedidoRemoteDataSource {
+  final documentos = <String, Map<String, dynamic>>{};
+  final codigos = <String, String?>{};
+  Object? error = errorFirestore('unavailable');
+  int intentos = 0;
+
+  Future<void> Function()? duranteEnvio;
+
+  @override
+  Future<bool> crearSiNoExiste(Pedido pedido) async {
+    intentos++;
+    await duranteEnvio?.call();
+    if (error != null) throw error!;
+    if (documentos.containsKey(pedido.id)) return false;
+    documentos[pedido.id] = pedido.toFirestore();
+    codigos[pedido.id] = pedido.codigoRecepcion;
+    return true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   late AppDatabase db;
   late PedidoLocalDataSource local;
+  late FakeRemote remote;
   late PedidoRepositoryImpl repositorio;
 
   setUp(() {
     db = AppDatabase.forTesting(NativeDatabase.memory());
     local = PedidoLocalDataSource(db);
-    repositorio = PedidoRepositoryImpl(local: local);
+    remote = FakeRemote();
+    repositorio = PedidoRepositoryImpl(
+      local: local,
+      remote: remote,
+      tiempoLimite: const Duration(milliseconds: 100),
+    );
   });
 
   tearDown(() => db.close());
@@ -166,5 +215,116 @@ void main() {
     expect(quedan.map((p) => p.id), [pendiente.id]);
     final lineas = await db.select(db.lineasPedido).get();
     expect(lineas.map((l) => l.pedidoId), [pendiente.id]);
+  });
+
+  group('sincronización', () {
+    setUp(() => remote.error = null);
+
+    Future<Pedido> local1(String id) async {
+      final guardado = (await local.pendientesDe(
+        'cliente-1',
+      )).firstWhere((p) => p.id == id);
+      return guardado;
+    }
+
+    test('envía el pendiente con su código aparte y lo marca', () async {
+      await local.insertar(pendiente('a'));
+
+      final resultado = await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(resultado.sincronizados, 1);
+      expect(remote.documentos['a']!['estado'], 'CREADO');
+      expect(remote.documentos['a']!.containsKey('codigoRecepcion'), isFalse);
+      expect(remote.codigos['a'], '123456');
+      expect(await local.pendientesDe('cliente-1'), isEmpty);
+    });
+
+    test('reintentar no duplica ni sobrescribe el documento', () async {
+      await local.insertar(pendiente('a'));
+      remote.documentos['a'] = {'estado': 'CONFIRMADO'};
+
+      final resultado = await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(resultado.sincronizados, 1);
+      expect(remote.documentos, hasLength(1));
+      expect(remote.documentos['a']!['estado'], 'CONFIRMADO');
+    });
+
+    test('un fallo temporal deja el pedido pendiente con el error', () async {
+      await local.insertar(pendiente('a'));
+      remote.error = errorFirestore('unavailable');
+
+      final resultado = await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(resultado.pendientes, 1);
+      final pedido = await local1('a');
+      expect(pedido.estadoSync, EstadoSync.pendiente);
+      expect(pedido.lastError, isNotNull);
+    });
+
+    test('sin respuesta a tiempo queda pendiente', () async {
+      await local.insertar(pendiente('a'));
+      remote.duranteEnvio = () =>
+          Future.delayed(const Duration(milliseconds: 300));
+
+      final resultado = await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(resultado.pendientes, 1);
+      expect((await local1('a')).lastError, contains('Sin conexión'));
+    });
+
+    test('un rechazo del servidor no se vuelve a enviar', () async {
+      await local.insertar(pendiente('a'));
+      remote.error = errorFirestore('permission-denied');
+
+      final resultado = await repositorio.sincronizarPendientes('cliente-1');
+      expect(resultado.rechazados, 1);
+
+      remote.error = null;
+      await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(remote.intentos, 1);
+      final mios = await repositorio.observarMisPedidos('cliente-1').first;
+      expect(mios.single.estadoSync, EstadoSync.rechazado);
+    });
+
+    test('una edición durante el envío no se marca sincronizada', () async {
+      await local.insertar(pendiente('a'));
+      remote.duranteEnvio = () async {
+        await (db.update(db.pedidos)..where((p) => p.id.equals('a'))).write(
+          PedidosCompanion(updatedAt: Value(DateTime(2026, 11, 5, 11))),
+        );
+      };
+
+      final resultado = await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(resultado.sincronizados, 0);
+      expect((await local1('a')).estadoSync, EstadoSync.pendiente);
+    });
+
+    test('solo envía los pedidos del cliente actual', () async {
+      await local.insertar(pendiente('a'));
+      await local.insertar(pendiente('b', clienteUid: 'cliente-2'));
+
+      await repositorio.sincronizarPendientes('cliente-1');
+
+      expect(remote.documentos.keys, ['a']);
+    });
+
+    test('crear el pedido intenta enviarlo sin esperar', () async {
+      await repositorio.crearPedido(
+        clienteUid: 'cliente-1',
+        lineas: const [hamburguesa],
+        direccion: 'Calle 1',
+      );
+
+      await expectLater(
+        repositorio
+            .observarMisPedidos('cliente-1')
+            .map((pedidos) => pedidos.single.estadoSync),
+        emitsThrough(EstadoSync.sincronizado),
+      );
+      expect(remote.documentos, hasLength(1));
+    });
   });
 }

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/errores.dart';
@@ -8,6 +10,7 @@ import '../models/estado_pedido.dart';
 import '../models/estado_sync.dart';
 import '../models/linea_pedido.dart';
 import '../models/pedido.dart';
+import '../remote/pedido_remote_data_source.dart';
 
 class ResultadoSync {
   final int sincronizados;
@@ -61,11 +64,24 @@ class PedidoRepositoryImpl implements PedidoRepository {
   static const maxProductos = 5;
   static const maxCantidad = 10;
 
+  /// Rechazos definitivos del servidor: el pedido no se reenvía.
+  static const codigosDeRechazo = {
+    'permission-denied',
+    'invalid-argument',
+    'failed-precondition',
+  };
+
   final PedidoLocalDataSource local;
+  final PedidoRemoteDataSource remote;
+  final Duration tiempoLimite;
   final Uuid _uuid = const Uuid();
   final Random _random = Random.secure();
 
-  PedidoRepositoryImpl({required this.local});
+  PedidoRepositoryImpl({
+    required this.local,
+    required this.remote,
+    this.tiempoLimite = const Duration(seconds: 10),
+  });
 
   @override
   Future<Pedido> crearPedido({
@@ -87,6 +103,8 @@ class PedidoRepositoryImpl implements PedidoRepository {
       codigoRecepcion: _generarCodigo(),
     );
     await local.insertar(pedido);
+    // Envío en segundo plano: si falla, el pedido sigue pendiente.
+    unawaited(sincronizarPendientes(clienteUid).then((_) {}, onError: (_) {}));
     return pedido;
   }
 
@@ -95,8 +113,45 @@ class PedidoRepositoryImpl implements PedidoRepository {
       local.observarDe(clienteUid);
 
   @override
-  Future<ResultadoSync> sincronizarPendientes(String clienteUid) =>
-      throw UnimplementedError();
+  Future<ResultadoSync> sincronizarPendientes(String clienteUid) async {
+    var sincronizados = 0;
+    var pendientes = 0;
+    var rechazados = 0;
+
+    for (final pedido in await local.pendientesDe(clienteUid)) {
+      try {
+        await remote.crearSiNoExiste(pedido).timeout(tiempoLimite);
+        if (await local.marcarSincronizado(pedido.id, pedido.updatedAt)) {
+          sincronizados++;
+        } else {
+          pendientes++;
+        }
+      } on FirebaseException catch (error) {
+        final rechazado = codigosDeRechazo.contains(error.code);
+        await local.marcarError(
+          pedido.id,
+          rechazado
+              ? 'El servidor rechazó el pedido.'
+              : 'No se pudo enviar. Se reintentará.',
+          rechazado: rechazado,
+        );
+        rechazado ? rechazados++ : pendientes++;
+      } on TimeoutException {
+        await local.marcarError(
+          pedido.id,
+          'Sin conexión. Se reintentará.',
+          rechazado: false,
+        );
+        pendientes++;
+      }
+    }
+
+    return ResultadoSync(
+      sincronizados: sincronizados,
+      pendientes: pendientes,
+      rechazados: rechazados,
+    );
+  }
 
   @override
   Future<void> descartarRechazado(String pedidoId) =>
