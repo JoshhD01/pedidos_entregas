@@ -158,13 +158,15 @@ class PedidoRepositoryImpl implements PedidoRepository {
       local.borrarRechazado(pedidoId);
 
   @override
-  Stream<List<Pedido>> observarBandejaOperador() => throw UnimplementedError();
+  Stream<List<Pedido>> observarBandejaOperador() => remote.observarCreados();
 
   @override
-  Future<void> confirmarPedido(String pedidoId) => throw UnimplementedError();
+  Future<void> confirmarPedido(String pedidoId) =>
+      remote.confirmar(pedidoId).timeout(tiempoLimite);
 
   @override
-  Future<void> rechazarPedido(String pedidoId) => throw UnimplementedError();
+  Future<void> rechazarPedido(String pedidoId) =>
+      remote.rechazar(pedidoId).timeout(tiempoLimite);
 
   String _generarCodigo() =>
       _random.nextInt(1000000).toString().padLeft(6, '0');

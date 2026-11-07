@@ -36,6 +36,7 @@ class InicioSegunRol extends StatelessWidget {
       Rol.operador => InicioOperador(
         perfil: perfil,
         authRepository: authRepository,
+        pedidoRepository: pedidoRepository,
       ),
       Rol.repartidor => InicioRepartidor(
         perfil: perfil,
