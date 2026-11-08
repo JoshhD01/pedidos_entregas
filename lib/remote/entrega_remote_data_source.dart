@@ -59,6 +59,35 @@ class EntregaRemoteDataSource {
       transaccion.update(repartidorRef, {'pedidoEnCamino': pedidoId});
     });
   }
+
+  /// La regla de Firestore compara `entrega/codigo` con `privado/codigo`;
+  /// el repartidor nunca lee el código del cliente.
+  Future<void> entregar(String pedidoId, String repartidorUid, String codigo) {
+    final pedidoRef = firestore.collection('pedidos').doc(pedidoId);
+    final repartidorRef = firestore
+        .collection('repartidores')
+        .doc(repartidorUid);
+    return firestore.runTransaction((transaccion) async {
+      final pedidoDoc = await transaccion.get(pedidoRef);
+      final pedidoData = pedidoDoc.data();
+      if (pedidoData == null) {
+        throw const ReglaDeNegocioException('El pedido no existe.');
+      }
+      validarEntrega(
+        Pedido.fromFirestore(pedidoDoc.id, pedidoData),
+        repartidorUid,
+      );
+
+      transaccion.set(pedidoRef.collection('entrega').doc('codigo'), {
+        'codigo': codigo,
+      });
+      transaccion.update(pedidoRef, {
+        'estado': EstadoPedido.entregado.valor,
+        'updatedAt': Timestamp.now(),
+      });
+      transaccion.update(repartidorRef, {'pedidoEnCamino': null});
+    });
+  }
 }
 
 /// Omite los documentos con formato inválido para no romper la bandeja.
