@@ -30,21 +30,75 @@ class PedidoLocalDataSource {
               lastError: Value(pedido.lastError),
             ),
           );
-      await db.batch((batch) {
-        batch.insertAll(
-          db.lineasPedido,
-          pedido.lineas.map(
-            (linea) => LineasPedidoCompanion.insert(
-              pedidoId: pedido.id,
-              productoId: linea.productoId,
-              nombreProducto: linea.nombreProducto,
-              cantidad: linea.cantidad,
-              precioUnitario: linea.precioUnitario,
-            ),
-          ),
-        );
-      });
+      await _insertarLineas(pedido);
     });
+  }
+
+  Future<void> _insertarLineas(Pedido pedido) {
+    return db.batch((batch) {
+      batch.insertAll(
+        db.lineasPedido,
+        pedido.lineas.map(
+          (linea) => LineasPedidoCompanion.insert(
+            pedidoId: pedido.id,
+            productoId: linea.productoId,
+            nombreProducto: linea.nombreProducto,
+            cantidad: linea.cantidad,
+            precioUnitario: linea.precioUnitario,
+          ),
+        ),
+      );
+    });
+  }
+
+  Future<Pedido?> buscar(String id, String ownerUid) async {
+    final consulta = db.select(db.pedidos)
+      ..where((p) => p.id.equals(id) & p.ownerUid.equals(ownerUid));
+    final pedidos = await _conLineas(await consulta.get());
+    return pedidos.isEmpty ? null : pedidos.single;
+  }
+
+  /// Copia el estado remoto. Un pendiente solo se toca si el servidor ya lo
+  /// procesó: eso prueba que llegó. Nunca toca rechazados ni otras cuentas.
+  // shortcut: no importa pedidos que no estén en este dispositivo; agregarlo si se pide historial al reinstalar.
+  Future<void> aplicarRemotos(String ownerUid, List<Pedido> remotos) {
+    return db.transaction(() async {
+      for (final remoto in remotos) {
+        if (remoto.clienteUid != ownerUid) continue;
+        final aplicables = [
+          EstadoSync.sincronizado.valor,
+          if (remoto.estado != EstadoPedido.creado) EstadoSync.pendiente.valor,
+        ];
+        final filas =
+            await (db.update(db.pedidos)..where(
+                  (p) =>
+                      p.id.equals(remoto.id) &
+                      p.ownerUid.equals(ownerUid) &
+                      p.estadoSync.isIn(aplicables),
+                ))
+                .write(
+                  PedidosCompanion(
+                    estado: Value(remoto.estado.valor),
+                    repartidorUid: Value(remoto.repartidorUid),
+                    updatedAt: Value(remoto.updatedAt),
+                    estadoSync: Value(EstadoSync.sincronizado.valor),
+                    lastError: const Value(null),
+                  ),
+                );
+        if (filas == 0) continue;
+        // Las líneas remotas traen el precio vigente que fijó la confirmación.
+        await (db.delete(
+          db.lineasPedido,
+        )..where((l) => l.pedidoId.equals(remoto.id))).go();
+        await _insertarLineas(remoto);
+      }
+    });
+  }
+
+  Future<void> cambiarEstado(String id, String ownerUid, EstadoPedido estado) {
+    return (db.update(db.pedidos)
+          ..where((p) => p.id.equals(id) & p.ownerUid.equals(ownerUid)))
+        .write(PedidosCompanion(estado: Value(estado.valor)));
   }
 
   Stream<List<Pedido>> observarDe(String ownerUid) {

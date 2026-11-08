@@ -90,6 +90,9 @@ class FakePedidoRepository implements PedidoRepository {
   Future<List<Perfil>> listarRepartidores() async => repartidores;
 
   @override
+  Stream<void> seguirMisPedidos(String clienteUid) => const Stream.empty();
+
+  @override
   Future<void> prepararPedido(String pedidoId) async =>
       llamadas.add('preparar $pedidoId');
 

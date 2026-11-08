@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/errores.dart';
 import '../../core/formato.dart';
 import '../../models/estado_pedido.dart';
 import '../../models/estado_sync.dart';
@@ -26,6 +29,7 @@ class _MisPedidosScreenState extends State<MisPedidosScreen> {
   late final Stream<List<Pedido>> _pedidos = widget.pedidoRepository
       .observarMisPedidos(widget.clienteUid);
   bool _sincronizando = false;
+  final _cancelando = <String>{};
 
   @override
   void initState() {
@@ -55,6 +59,50 @@ class _MisPedidosScreenState extends State<MisPedidosScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(mensaje)));
     }
+  }
+
+  Future<void> _cancelar(Pedido pedido) async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Cancelar el pedido?'),
+        content: const Text('Solo se puede mientras el operador no lo tome.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sí, cancelar'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado != true || !mounted) return;
+
+    setState(() => _cancelando.add(pedido.id));
+    String mensaje;
+    try {
+      await widget.pedidoRepository.cancelarPedido(
+        pedido.id,
+        widget.clienteUid,
+      );
+      mensaje = 'Pedido cancelado.';
+    } on ReglaDeNegocioException catch (error) {
+      mensaje = error.mensaje;
+    } on TimeoutException {
+      // La transacción pudo completarse; el seguimiento mostrará el estado real.
+      mensaje =
+          'Sin respuesta del servidor. Revisa el estado antes de reintentar.';
+    } catch (_) {
+      mensaje = 'No se pudo cancelar el pedido.';
+    }
+    if (!mounted) return;
+    setState(() => _cancelando.remove(pedido.id));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(mensaje)));
   }
 
   @override
@@ -103,9 +151,11 @@ class _MisPedidosScreenState extends State<MisPedidosScreen> {
             itemCount: pedidos.length,
             itemBuilder: (context, indice) => _PedidoCard(
               pedido: pedidos[indice],
+              cancelando: _cancelando.contains(pedidos[indice].id),
               onDescartar: () => widget.pedidoRepository.descartarRechazado(
                 pedidos[indice].id,
               ),
+              onCancelar: () => _cancelar(pedidos[indice]),
             ),
           );
         },
@@ -116,9 +166,16 @@ class _MisPedidosScreenState extends State<MisPedidosScreen> {
 
 class _PedidoCard extends StatelessWidget {
   final Pedido pedido;
+  final bool cancelando;
   final VoidCallback onDescartar;
+  final VoidCallback onCancelar;
 
-  const _PedidoCard({required this.pedido, required this.onDescartar});
+  const _PedidoCard({
+    required this.pedido,
+    required this.cancelando,
+    required this.onDescartar,
+    required this.onCancelar,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -191,6 +248,11 @@ class _PedidoCard extends StatelessWidget {
                   TextButton(
                     onPressed: onDescartar,
                     child: const Text('Descartar'),
+                  )
+                else if (pedido.estado == EstadoPedido.creado)
+                  TextButton(
+                    onPressed: cancelando ? null : onCancelar,
+                    child: const Text('Cancelar pedido'),
                   ),
               ],
             ),

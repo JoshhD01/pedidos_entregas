@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -65,6 +67,31 @@ class FakeRemote implements PedidoRemoteDataSource {
     documentos[pedido.id] = pedido.toFirestore();
     codigos[pedido.id] = pedido.codigoRecepcion;
     return true;
+  }
+
+  final respuestas =
+      StreamController<({List<Pedido> pedidos, bool desdeServidor})>();
+
+  @override
+  Stream<({List<Pedido> pedidos, bool desdeServidor})> observarDeCliente(
+    String clienteUid,
+  ) => respuestas.stream;
+
+  /// Igual que la transacción real: relee el estado y valida el dueño.
+  @override
+  Future<void> cancelar(String pedidoId, String clienteUid) async {
+    if (error != null) throw error!;
+    final doc = documentos[pedidoId];
+    if (doc == null) {
+      throw const ReglaDeNegocioException('El pedido no existe.');
+    }
+    if (doc['clienteUid'] != clienteUid) {
+      throw const ReglaDeNegocioException('Este pedido no es tuyo.');
+    }
+    if (doc['estado'] != EstadoPedido.creado.valor) {
+      throw const ReglaDeNegocioException('El pedido ya cambió de estado.');
+    }
+    doc['estado'] = EstadoPedido.cancelado.valor;
   }
 
   @override
@@ -325,6 +352,179 @@ void main() {
         emitsThrough(EstadoSync.sincronizado),
       );
       expect(remote.documentos, hasLength(1));
+    });
+
+    test('dos envíos simultáneos hacen un solo intento', () async {
+      await local.insertar(pendiente('a'));
+
+      final resultados = await Future.wait([
+        repositorio.sincronizarPendientes('cliente-1'),
+        repositorio.sincronizarPendientes('cliente-1'),
+      ]);
+
+      expect(remote.intentos, 1);
+      expect(resultados.map((r) => r.pendientes), [0, 0]);
+    });
+  });
+
+  group('seguimiento', () {
+    Pedido remoto(
+      String id,
+      EstadoPedido estado, {
+      String clienteUid = 'cliente-1',
+      int precio = 20000,
+    }) => Pedido(
+      id: id,
+      clienteUid: clienteUid,
+      lineas: [
+        LineaPedido(
+          productoId: 'p001',
+          nombreProducto: 'Hamburguesa',
+          cantidad: 2,
+          precioUnitario: precio,
+        ),
+      ],
+      direccion: 'Calle 1',
+      estado: estado,
+      repartidorUid: estado == EstadoPedido.listo ? 'r1' : null,
+      createdAt: DateTime(2026, 11, 5, 10),
+      updatedAt: DateTime(2026, 11, 5, 12),
+      estadoSync: EstadoSync.sincronizado,
+    );
+
+    Future<Pedido> leer(String id) async =>
+        (await local.buscar(id, 'cliente-1'))!;
+
+    test('copia estado, repartidor y precio vigente del servidor', () async {
+      await local.insertar(pendiente('a'));
+      await local.marcarSincronizado('a', DateTime(2026, 11, 5, 10));
+
+      await local.aplicarRemotos('cliente-1', [
+        remoto('a', EstadoPedido.listo),
+      ]);
+
+      final pedido = await leer('a');
+      expect(pedido.estado, EstadoPedido.listo);
+      expect(pedido.repartidorUid, 'r1');
+      expect(pedido.total, 40000);
+      expect(pedido.codigoRecepcion, '123456');
+    });
+
+    test('un pendiente en CREADO no se toca', () async {
+      await local.insertar(pendiente('a'));
+
+      await local.aplicarRemotos('cliente-1', [
+        remoto('a', EstadoPedido.creado),
+      ]);
+
+      final pedido = await leer('a');
+      expect(pedido.estadoSync, EstadoSync.pendiente);
+      expect(pedido.total, 36000);
+    });
+
+    test(
+      'un pendiente que el servidor ya procesó queda sincronizado',
+      () async {
+        await local.insertar(pendiente('a'));
+
+        await local.aplicarRemotos('cliente-1', [
+          remoto('a', EstadoPedido.confirmado),
+        ]);
+
+        final pedido = await leer('a');
+        expect(pedido.estado, EstadoPedido.confirmado);
+        expect(pedido.estadoSync, EstadoSync.sincronizado);
+      },
+    );
+
+    test('no toca rechazados ni pedidos de otra cuenta', () async {
+      await local.insertar(pendiente('a'));
+      await local.marcarError('a', 'Sin permiso', rechazado: true);
+      await local.insertar(pendiente('b', clienteUid: 'cliente-2'));
+      await local.marcarSincronizado('b', DateTime(2026, 11, 5, 10));
+
+      await local.aplicarRemotos('cliente-1', [
+        remoto('a', EstadoPedido.confirmado),
+        remoto('b', EstadoPedido.confirmado, clienteUid: 'cliente-2'),
+      ]);
+
+      expect((await leer('a')).estadoSync, EstadoSync.rechazado);
+      final otro = await local.buscar('b', 'cliente-2');
+      expect(otro!.estado, EstadoPedido.creado);
+    });
+
+    test('una respuesta del servidor envía los pendientes', () async {
+      remote.error = null;
+      await local.insertar(pendiente('a'));
+      final suscripcion = repositorio
+          .seguirMisPedidos('cliente-1')
+          .listen(null);
+      addTearDown(suscripcion.cancel);
+
+      remote.respuestas.add((pedidos: const [], desdeServidor: false));
+      await pumpEventQueue();
+      expect(remote.intentos, 0);
+
+      remote.respuestas.add((pedidos: const [], desdeServidor: true));
+      await pumpEventQueue();
+      expect(remote.intentos, 1);
+      expect((await leer('a')).estadoSync, EstadoSync.sincronizado);
+    });
+  });
+
+  group('cancelar', () {
+    setUp(() => remote.error = null);
+
+    test('un pedido CREADO se cancela en el servidor y en local', () async {
+      await local.insertar(pendiente('a'));
+
+      await repositorio.cancelarPedido('a', 'cliente-1');
+
+      expect(remote.documentos['a']!['estado'], 'CANCELADO');
+      final pedido = (await local.buscar('a', 'cliente-1'))!;
+      expect(pedido.estado, EstadoPedido.cancelado);
+    });
+
+    test('si el operador ya lo confirmó, gana el operador', () async {
+      await local.insertar(pendiente('a'));
+      await repositorio.sincronizarPendientes('cliente-1');
+      remote.documentos['a']!['estado'] = 'CONFIRMADO';
+
+      await expectLater(
+        repositorio.cancelarPedido('a', 'cliente-1'),
+        throwsA(isA<ReglaDeNegocioException>()),
+      );
+      expect(remote.documentos['a']!['estado'], 'CONFIRMADO');
+      final pedido = (await local.buscar('a', 'cliente-1'))!;
+      expect(pedido.estado, EstadoPedido.creado);
+    });
+
+    test('sin conexión no cancela un pedido que no llegó', () async {
+      await local.insertar(pendiente('a'));
+      remote.error = errorFirestore('unavailable');
+
+      await expectLater(
+        repositorio.cancelarPedido('a', 'cliente-1'),
+        throwsA(
+          isA<ReglaDeNegocioException>().having(
+            (e) => e.mensaje,
+            'mensaje',
+            contains('Sin conexión'),
+          ),
+        ),
+      );
+      final pedido = (await local.buscar('a', 'cliente-1'))!;
+      expect(pedido.estado, EstadoPedido.creado);
+    });
+
+    test('no cancela pedidos de otra cuenta ni ya terminados', () async {
+      await local.insertar(pendiente('a', clienteUid: 'cliente-2'));
+
+      await expectLater(
+        repositorio.cancelarPedido('a', 'cliente-1'),
+        throwsA(isA<ReglaDeNegocioException>()),
+      );
+      expect(remote.intentos, 0);
     });
   });
 }

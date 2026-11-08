@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/registro_errores.dart';
 import '../../models/linea_pedido.dart';
 import '../../models/pedido.dart';
 import '../../models/perfil.dart';
@@ -31,9 +34,20 @@ class InicioCliente extends StatefulWidget {
 
 class _InicioClienteState extends State<InicioCliente> {
   final _carrito = ValueNotifier<List<LineaPedido>>(const []);
+  late final StreamSubscription<void> _seguimiento;
+
+  @override
+  void initState() {
+    super.initState();
+    // Toda la sesión del cliente: Mis pedidos refleja lo que hacen los otros roles.
+    _seguimiento = widget.pedidoRepository
+        .seguirMisPedidos(widget.perfil.uid)
+        .listen(null, onError: registrarError);
+  }
 
   @override
   void dispose() {
+    _seguimiento.cancel();
     _carrito.dispose();
     super.dispose();
   }
