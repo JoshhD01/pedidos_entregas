@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pedidos_entregas/core/errores.dart';
+import 'package:pedidos_entregas/models/entrega.dart';
 import 'package:pedidos_entregas/models/estado_pedido.dart';
 import 'package:pedidos_entregas/models/estado_sync.dart';
 import 'package:pedidos_entregas/models/linea_pedido.dart';
@@ -51,6 +53,16 @@ Pedido pedido(String id, EstadoPedido estado) => Pedido(
 class FakeEntregaRepository implements EntregaRepository {
   var controlador = StreamController<List<Pedido>>();
   final pedidos = <String>[];
+  final iniciados = <String>[];
+  Completer<void>? espera;
+  Object? error;
+
+  @override
+  Future<void> iniciarRecorrido(String pedidoId, String repartidorUid) async {
+    iniciados.add(pedidoId);
+    await espera?.future;
+    if (error != null) throw error!;
+  }
 
   @override
   Stream<List<Pedido>> observarAsignados(String repartidorUid) {
@@ -58,6 +70,20 @@ class FakeEntregaRepository implements EntregaRepository {
     controlador = StreamController<List<Pedido>>();
     return controlador.stream;
   }
+}
+
+class FakeRemote implements EntregaRemoteDataSource {
+  Completer<void> respuesta = Completer<void>();
+  final llamadas = <(String, String)>[];
+
+  @override
+  Future<void> iniciarRecorrido(String pedidoId, String repartidorUid) {
+    llamadas.add((pedidoId, repartidorUid));
+    return respuesta.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Widget bandeja(FakeEntregaRepository repo) => MaterialApp(
@@ -146,6 +172,149 @@ void main() {
       await tester.tap(find.text('Reintentar'));
       await tester.pump();
       expect(repo.pedidos, hasLength(2));
+    });
+  });
+
+  group('validarInicioRecorrido', () {
+    test('permite un pedido LISTO asignado sin otro en camino', () {
+      validarInicioRecorrido(
+        pedido('1', EstadoPedido.listo),
+        'repartidor-1',
+        null,
+      );
+    });
+
+    test('rechaza un pedido asignado a otro repartidor', () {
+      expect(
+        () => validarInicioRecorrido(
+          pedido('1', EstadoPedido.listo),
+          'otro',
+          null,
+        ),
+        throwsA(isA<ReglaDeNegocioException>()),
+      );
+    });
+
+    test('rechaza un pedido que no está LISTO', () {
+      for (final estado in EstadoPedido.values) {
+        if (estado == EstadoPedido.listo) continue;
+        expect(
+          () =>
+              validarInicioRecorrido(pedido('1', estado), 'repartidor-1', null),
+          throwsA(isA<ReglaDeNegocioException>()),
+          reason: estado.valor,
+        );
+      }
+    });
+
+    test('rechaza un segundo pedido en camino', () {
+      expect(
+        () => validarInicioRecorrido(
+          pedido('2', EstadoPedido.listo),
+          'repartidor-1',
+          '1',
+        ),
+        throwsA(
+          isA<ReglaDeNegocioException>().having(
+            (e) => e.mensaje,
+            'mensaje',
+            contains('Ya tienes un pedido en camino'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('EntregaRepositoryImpl.iniciarRecorrido', () {
+    test('envía el pedido y el uid del repartidor', () async {
+      final remote = FakeRemote()..respuesta.complete();
+      await EntregaRepositoryImpl(
+        remote: remote,
+      ).iniciarRecorrido('p-1', 'repartidor-1');
+
+      expect(remote.llamadas, [('p-1', 'repartidor-1')]);
+    });
+
+    test('sin red termina con TimeoutException', () async {
+      final repo = EntregaRepositoryImpl(
+        remote: FakeRemote(),
+        tiempoLimite: const Duration(milliseconds: 10),
+      );
+
+      expect(
+        repo.iniciarRecorrido('p-1', 'repartidor-1'),
+        throwsA(isA<TimeoutException>()),
+      );
+    });
+  });
+
+  group('iniciar recorrido en la bandeja', () {
+    Future<FakeEntregaRepository> abrirConListo(WidgetTester tester) async {
+      final repo = FakeEntregaRepository();
+      await tester.pumpWidget(bandeja(repo));
+      repo.controlador.add([pedido('1', EstadoPedido.listo)]);
+      await tester.pump();
+      return repo;
+    }
+
+    testWidgets('solo los asignados tienen el botón', (tester) async {
+      final repo = FakeEntregaRepository();
+      await tester.pumpWidget(bandeja(repo));
+      repo.controlador.add([
+        pedido('1', EstadoPedido.listo),
+        pedido('2', EstadoPedido.enCamino),
+      ]);
+      await tester.pump();
+
+      expect(find.text('Iniciar recorrido'), findsOneWidget);
+    });
+
+    testWidgets('bloquea el botón mientras guarda y avisa el resultado', (
+      tester,
+    ) async {
+      final repo = await abrirConListo(tester);
+      repo.espera = Completer<void>();
+
+      await tester.tap(find.text('Iniciar recorrido'));
+      await tester.pump();
+      expect(find.text('Guardando...'), findsOneWidget);
+      await tester.tap(find.text('Guardando...'));
+      expect(repo.iniciados, ['1']);
+
+      repo.espera!.complete();
+      await tester.pump();
+      expect(find.text('Recorrido iniciado.'), findsOneWidget);
+      expect(find.text('Iniciar recorrido'), findsOneWidget);
+    });
+
+    testWidgets('muestra la regla de negocio que impidió iniciar', (
+      tester,
+    ) async {
+      final repo = await abrirConListo(tester);
+      repo.error = const ReglaDeNegocioException(
+        'Ya tienes un pedido en camino. Entrégalo antes de iniciar otro.',
+      );
+
+      await tester.tap(find.text('Iniciar recorrido'));
+      await tester.pump();
+
+      expect(
+        find.textContaining('Ya tienes un pedido en camino'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('un error inesperado no muestra detalles técnicos', (
+      tester,
+    ) async {
+      final repo = await abrirConListo(tester);
+      repo.error = Exception('permission-denied');
+
+      await tester.tap(find.text('Iniciar recorrido'));
+      await tester.pump();
+
+      expect(find.text('No se pudo actualizar el pedido.'), findsOneWidget);
+      expect(find.textContaining('permission-denied'), findsNothing);
     });
   });
 }

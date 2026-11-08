@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/errores.dart';
+import '../models/entrega.dart';
 import '../models/estado_pedido.dart';
 import '../models/pedido.dart';
 
@@ -22,6 +24,40 @@ class EntregaRemoteDataSource {
             for (final doc in consulta.docs) doc.id: doc.data(),
           }),
         );
+  }
+
+  /// Ocupa `repartidores/{uid}` en la misma transacción: nunca dos pedidos en camino.
+  Future<void> iniciarRecorrido(String pedidoId, String repartidorUid) {
+    final pedidoRef = firestore.collection('pedidos').doc(pedidoId);
+    final repartidorRef = firestore
+        .collection('repartidores')
+        .doc(repartidorUid);
+    return firestore.runTransaction((transaccion) async {
+      final pedidoDoc = await transaccion.get(pedidoRef);
+      final repartidorDoc = await transaccion.get(repartidorRef);
+      final pedidoData = pedidoDoc.data();
+      final repartidorData = repartidorDoc.data();
+      if (pedidoData == null) {
+        throw const ReglaDeNegocioException('El pedido no existe.');
+      }
+      if (repartidorData == null) {
+        throw const ReglaDeNegocioException(
+          'Tu cuenta no está habilitada para repartir.',
+        );
+      }
+
+      validarInicioRecorrido(
+        Pedido.fromFirestore(pedidoDoc.id, pedidoData),
+        repartidorUid,
+        repartidorData['pedidoEnCamino'] as String?,
+      );
+
+      transaccion.update(pedidoRef, {
+        'estado': EstadoPedido.enCamino.valor,
+        'updatedAt': Timestamp.now(),
+      });
+      transaccion.update(repartidorRef, {'pedidoEnCamino': pedidoId});
+    });
   }
 }
 
