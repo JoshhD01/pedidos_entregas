@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/errores.dart';
 import '../../core/formato.dart';
 import '../../models/estado_pedido.dart';
 import '../../models/pedido.dart';
@@ -31,7 +34,42 @@ class _BandejaRepartidorState extends State<BandejaRepartidor> {
   Stream<List<Pedido>> _observar() =>
       widget.entregaRepository.observarAsignados(widget.repartidorUid);
 
+  final _procesando = <String>{};
+
   void _reintentar() => setState(() => _pedidos = _observar());
+
+  Future<void> _procesar(
+    Pedido pedido,
+    Future<void> Function() accion,
+    String exito,
+  ) async {
+    setState(() => _procesando.add(pedido.id));
+    String mensaje;
+    try {
+      await accion();
+      mensaje = exito;
+    } on ReglaDeNegocioException catch (error) {
+      mensaje = error.mensaje;
+    } on TimeoutException {
+      mensaje = 'Sin conexión. Intenta de nuevo.';
+    } catch (_) {
+      mensaje = 'No se pudo actualizar el pedido.';
+    }
+    if (!mounted) return;
+    setState(() => _procesando.remove(pedido.id));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(mensaje)));
+  }
+
+  void _iniciarRecorrido(Pedido pedido) => _procesar(
+    pedido,
+    () => widget.entregaRepository.iniciarRecorrido(
+      pedido.id,
+      widget.repartidorUid,
+    ),
+    'Recorrido iniciado.',
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +112,13 @@ class _BandejaRepartidorState extends State<BandejaRepartidor> {
             ],
             if (asignados.isNotEmpty) ...[
               const _Titulo('Asignados'),
-              for (final pedido in asignados) _EntregaCard(pedido: pedido),
+              for (final pedido in asignados)
+                _EntregaCard(
+                  pedido: pedido,
+                  textoBoton: 'Iniciar recorrido',
+                  ocupado: _procesando.contains(pedido.id),
+                  onPressed: () => _iniciarRecorrido(pedido),
+                ),
             ],
           ],
         );
@@ -99,8 +143,16 @@ class _Titulo extends StatelessWidget {
 
 class _EntregaCard extends StatelessWidget {
   final Pedido pedido;
+  final String? textoBoton;
+  final bool ocupado;
+  final VoidCallback? onPressed;
 
-  const _EntregaCard({required this.pedido});
+  const _EntregaCard({
+    required this.pedido,
+    this.textoBoton,
+    this.ocupado = false,
+    this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -130,6 +182,16 @@ class _EntregaCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text('Total: ${formatearPrecio(pedido.total)}'),
             Text(pedido.direccion),
+            if (textoBoton != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: ocupado ? null : onPressed,
+                  child: Text(ocupado ? 'Guardando...' : textoBoton!),
+                ),
+              ),
+            ],
           ],
         ),
       ),

@@ -88,6 +88,9 @@ class FakeEntregaRepository implements EntregaRepository {
   @override
   Stream<List<Pedido>> observarAsignados(String repartidorUid) =>
       Stream.value(const []);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 Widget app(FakeAuthRepository auth) => PedidosEntregasApp(
