@@ -6,7 +6,12 @@ import 'package:pedidos_entregas/core/errores.dart';
 import 'package:pedidos_entregas/main.dart';
 import 'package:pedidos_entregas/models/estado_pedido.dart';
 import 'package:pedidos_entregas/models/estado_sync.dart';
+import 'package:pedidos_entregas/models/filtro_pedidos.dart';
+import 'package:pedidos_entregas/models/linea_pedido.dart';
 import 'package:pedidos_entregas/models/pedido.dart';
+import 'package:pedidos_entregas/repositories/preferencias_repository.dart';
+import 'package:pedidos_entregas/screens/pedidos/carrito_screen.dart';
+import 'package:pedidos_entregas/screens/pedidos/mis_pedidos_screen.dart';
 import 'package:pedidos_entregas/models/perfil.dart';
 import 'package:pedidos_entregas/models/producto.dart';
 import 'package:pedidos_entregas/repositories/auth_repository.dart';
@@ -92,6 +97,39 @@ class FakePedidoRepository implements PedidoRepository {
   @override
   Stream<void> seguirMisPedidos(String clienteUid) => const Stream.empty();
 
+  List<Pedido> misPedidos = const [];
+
+  @override
+  Stream<List<Pedido>> observarMisPedidos(String clienteUid) =>
+      Stream.value(misPedidos);
+
+  @override
+  Future<ResultadoSync> sincronizarPendientes(String clienteUid) async =>
+      const ResultadoSync(sincronizados: 0, pendientes: 0, rechazados: 0);
+
+  @override
+  Future<void> cancelarPedido(String pedidoId, String clienteUid) async =>
+      llamadas.add('cancelar $pedidoId');
+
+  @override
+  Future<Pedido> crearPedido({
+    required String clienteUid,
+    required List<LineaPedido> lineas,
+    required String direccion,
+  }) async {
+    llamadas.add('crear ${lineas.length} $direccion');
+    return Pedido(
+      id: 'nuevo',
+      clienteUid: clienteUid,
+      lineas: lineas,
+      direccion: direccion,
+      estado: EstadoPedido.creado,
+      createdAt: DateTime(2026, 11, 8),
+      updatedAt: DateTime(2026, 11, 8),
+      estadoSync: EstadoSync.pendiente,
+    );
+  }
+
   @override
   Future<void> prepararPedido(String pedidoId) async =>
       llamadas.add('preparar $pedidoId');
@@ -117,12 +155,37 @@ class FakeEntregaRepository implements EntregaRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class FakePreferenciasRepository implements PreferenciasRepository {
+  FiltroPedidos? guardado;
+
+  @override
+  Future<FiltroPedidos?> leerFiltroMisPedidos() async => guardado;
+
+  @override
+  Future<void> guardarFiltroMisPedidos(FiltroPedidos filtro) async =>
+      guardado = filtro;
+}
+
 Widget app(FakeAuthRepository auth) => PedidosEntregasApp(
   authRepository: auth,
   productoRepository: FakeProductoRepository(),
   pedidoRepository: FakePedidoRepository(),
   entregaRepository: FakeEntregaRepository(),
+  preferenciasRepository: FakePreferenciasRepository(),
 );
+
+Pedido pedidoEn(String id, EstadoPedido estado, {String? repartidorUid}) =>
+    Pedido(
+      id: id,
+      clienteUid: 'cliente-1',
+      lineas: const [],
+      direccion: 'Calle $id',
+      estado: estado,
+      repartidorUid: repartidorUid,
+      createdAt: DateTime(2026, 11, 8),
+      updatedAt: DateTime(2026, 11, 8),
+      estadoSync: EstadoSync.sincronizado,
+    );
 
 Future<void> abrirApp(WidgetTester tester, FakeAuthRepository auth) async {
   await tester.pumpWidget(app(auth));
@@ -422,19 +485,112 @@ void main() {
     });
   });
 
+  group('mis pedidos', () {
+    Future<(FakePedidoRepository, FakePreferenciasRepository)> abrir(
+      WidgetTester tester, {
+      FiltroPedidos? guardado,
+    }) async {
+      final repo = FakePedidoRepository()
+        ..misPedidos = [
+          pedidoEn('1', EstadoPedido.creado),
+          pedidoEn('2', EstadoPedido.entregado),
+        ];
+      final prefs = FakePreferenciasRepository()..guardado = guardado;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MisPedidosScreen(
+            pedidoRepository: repo,
+            preferenciasRepository: prefs,
+            clienteUid: 'cliente-1',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return (repo, prefs);
+    }
+
+    testWidgets('aplica el filtro guardado al abrir', (tester) async {
+      await abrir(tester, guardado: FiltroPedidos.terminados);
+
+      expect(find.text('Calle 2'), findsOneWidget);
+      expect(find.text('Calle 1'), findsNothing);
+    });
+
+    testWidgets('cambiar el filtro lo guarda', (tester) async {
+      final (_, prefs) = await abrir(tester);
+      expect(find.text('Calle 1'), findsOneWidget);
+      expect(find.text('Calle 2'), findsOneWidget);
+
+      await tester.tap(find.text('Activos'));
+      await tester.pumpAndSettle();
+
+      expect(prefs.guardado, FiltroPedidos.activos);
+      expect(find.text('Calle 1'), findsOneWidget);
+      expect(find.text('Calle 2'), findsNothing);
+    });
+
+    testWidgets('solo un pedido creado se puede cancelar', (tester) async {
+      final (repo, _) = await abrir(tester);
+
+      expect(find.text('Cancelar pedido'), findsOneWidget);
+      await tester.tap(find.text('Cancelar pedido'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sí, cancelar'));
+      await tester.pumpAndSettle();
+
+      expect(repo.llamadas, ['cancelar 1']);
+      expect(find.text('Pedido cancelado.'), findsOneWidget);
+    });
+  });
+
+  group('carrito', () {
+    Future<FakePedidoRepository> abrir(WidgetTester tester) async {
+      final repo = FakePedidoRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CarritoScreen(
+            carrito: ValueNotifier(const [
+              LineaPedido(
+                productoId: 'p001',
+                nombreProducto: 'Hamburguesa',
+                cantidad: 2,
+                precioUnitario: 18000,
+              ),
+            ]),
+            pedidoRepository: repo,
+            clienteUid: 'cliente-1',
+          ),
+        ),
+      );
+      return repo;
+    }
+
+    testWidgets('sin dirección no crea el pedido', (tester) async {
+      final repo = await abrir(tester);
+
+      await tester.tap(find.text('Crear pedido'));
+      await tester.pump();
+
+      expect(find.text('Indica la dirección de entrega.'), findsOneWidget);
+      expect(repo.llamadas, isEmpty);
+    });
+
+    testWidgets('con dirección crea el pedido con las líneas', (tester) async {
+      final repo = await abrir(tester);
+
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Dirección de entrega'),
+        'Calle 10',
+      );
+      await tester.tap(find.text('Crear pedido'));
+      await tester.pumpAndSettle();
+
+      expect(repo.llamadas, ['crear 1 Calle 10']);
+    });
+  });
+
   group('bandeja del operador', () {
-    Pedido pedido(String id, EstadoPedido estado, {String? repartidorUid}) =>
-        Pedido(
-          id: id,
-          clienteUid: 'cliente-1',
-          lineas: const [],
-          direccion: 'Calle $id',
-          estado: estado,
-          repartidorUid: repartidorUid,
-          createdAt: DateTime(2026, 11, 8),
-          updatedAt: DateTime(2026, 11, 8),
-          estadoSync: EstadoSync.sincronizado,
-        );
+    const pedido = pedidoEn;
 
     Future<FakePedidoRepository> abrir(
       WidgetTester tester,

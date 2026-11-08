@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'firebase_options.dart';
 import 'local/app_database.dart';
@@ -18,6 +19,7 @@ import 'remote/producto_remote_data_source.dart';
 import 'repositories/auth_repository.dart';
 import 'repositories/entrega_repository.dart';
 import 'repositories/pedido_repository.dart';
+import 'repositories/preferencias_repository.dart';
 import 'repositories/producto_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/inicio/inicio_segun_rol.dart';
@@ -65,6 +67,9 @@ Future<void> main() async {
       productoRepository: productoRepository,
       pedidoRepository: pedidoRepository,
       entregaRepository: entregaRepository,
+      preferenciasRepository: PreferenciasRepositoryImpl(
+        SharedPreferencesAsync(),
+      ),
     ),
   );
 }
@@ -74,6 +79,7 @@ class PedidosEntregasApp extends StatelessWidget {
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
   final EntregaRepository entregaRepository;
+  final PreferenciasRepository preferenciasRepository;
 
   const PedidosEntregasApp({
     super.key,
@@ -81,6 +87,7 @@ class PedidosEntregasApp extends StatelessWidget {
     required this.productoRepository,
     required this.pedidoRepository,
     required this.entregaRepository,
+    required this.preferenciasRepository,
   });
 
   @override
@@ -96,6 +103,7 @@ class PedidosEntregasApp extends StatelessWidget {
         productoRepository: productoRepository,
         pedidoRepository: pedidoRepository,
         entregaRepository: entregaRepository,
+        preferenciasRepository: preferenciasRepository,
       ),
     );
   }
@@ -107,6 +115,7 @@ class RaizSesion extends StatefulWidget {
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
   final EntregaRepository entregaRepository;
+  final PreferenciasRepository preferenciasRepository;
 
   const RaizSesion({
     super.key,
@@ -114,6 +123,7 @@ class RaizSesion extends StatefulWidget {
     required this.productoRepository,
     required this.pedidoRepository,
     required this.entregaRepository,
+    required this.preferenciasRepository,
   });
 
   @override
@@ -147,6 +157,7 @@ class _RaizSesionState extends State<RaizSesion> {
           productoRepository: widget.productoRepository,
           pedidoRepository: widget.pedidoRepository,
           entregaRepository: widget.entregaRepository,
+          preferenciasRepository: widget.preferenciasRepository,
         );
       },
     );
@@ -160,6 +171,7 @@ class CargaPerfil extends StatefulWidget {
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
   final EntregaRepository entregaRepository;
+  final PreferenciasRepository preferenciasRepository;
 
   const CargaPerfil({
     super.key,
@@ -168,6 +180,7 @@ class CargaPerfil extends StatefulWidget {
     required this.productoRepository,
     required this.pedidoRepository,
     required this.entregaRepository,
+    required this.preferenciasRepository,
   });
 
   @override
@@ -215,6 +228,7 @@ class _CargaPerfilState extends State<CargaPerfil> {
           productoRepository: widget.productoRepository,
           pedidoRepository: widget.pedidoRepository,
           entregaRepository: widget.entregaRepository,
+          preferenciasRepository: widget.preferenciasRepository,
         );
       },
     );

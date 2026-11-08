@@ -4,20 +4,25 @@ import 'package:flutter/material.dart';
 
 import '../../core/errores.dart';
 import '../../core/formato.dart';
+import '../../core/registro_errores.dart';
 import '../../models/estado_pedido.dart';
 import '../../models/estado_sync.dart';
+import '../../models/filtro_pedidos.dart';
 import '../../models/pedido.dart';
 import '../../repositories/pedido_repository.dart';
+import '../../repositories/preferencias_repository.dart';
 import '../../widgets/empty_view.dart';
 import '../../widgets/loading_view.dart';
 
 class MisPedidosScreen extends StatefulWidget {
   final PedidoRepository pedidoRepository;
+  final PreferenciasRepository preferenciasRepository;
   final String clienteUid;
 
   const MisPedidosScreen({
     super.key,
     required this.pedidoRepository,
+    required this.preferenciasRepository,
     required this.clienteUid,
   });
 
@@ -30,11 +35,22 @@ class _MisPedidosScreenState extends State<MisPedidosScreen> {
       .observarMisPedidos(widget.clienteUid);
   bool _sincronizando = false;
   final _cancelando = <String>{};
+  FiltroPedidos _filtro = FiltroPedidos.todos;
 
   @override
   void initState() {
     super.initState();
     _sincronizar(avisar: false);
+    widget.preferenciasRepository.leerFiltroMisPedidos().then((guardado) {
+      if (guardado != null && mounted) setState(() => _filtro = guardado);
+    }, onError: registrarError);
+  }
+
+  void _cambiarFiltro(FiltroPedidos filtro) {
+    setState(() => _filtro = filtro);
+    widget.preferenciasRepository
+        .guardarFiltroMisPedidos(filtro)
+        .then((_) {}, onError: registrarError);
   }
 
   Future<void> _sincronizar({required bool avisar}) async {
@@ -124,42 +140,77 @@ class _MisPedidosScreenState extends State<MisPedidosScreen> {
           ),
         ],
       ),
-      body: StreamBuilder<List<Pedido>>(
-        stream: _pedidos,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return const EmptyView(
-              icono: Icons.error_outline,
-              mensaje: 'No se pudieron leer tus pedidos.',
-            );
-          }
-          final pedidos = snapshot.data;
-          if (pedidos == null) return const LoadingView();
-          if (pedidos.isEmpty) {
-            return const EmptyView(
-              icono: Icons.receipt_long_outlined,
-              mensaje: 'Aún no tienes pedidos.',
-            );
-          }
-          return ListView.builder(
-            padding: EdgeInsets.fromLTRB(
-              12,
-              12,
-              12,
-              12 + MediaQuery.paddingOf(context).bottom,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: SegmentedButton<FiltroPedidos>(
+              segments: const [
+                ButtonSegment(value: FiltroPedidos.todos, label: Text('Todos')),
+                ButtonSegment(
+                  value: FiltroPedidos.activos,
+                  label: Text('Activos'),
+                ),
+                ButtonSegment(
+                  value: FiltroPedidos.terminados,
+                  label: Text('Terminados'),
+                ),
+              ],
+              selected: {_filtro},
+              onSelectionChanged: (seleccion) =>
+                  _cambiarFiltro(seleccion.single),
             ),
-            itemCount: pedidos.length,
-            itemBuilder: (context, indice) => _PedidoCard(
-              pedido: pedidos[indice],
-              cancelando: _cancelando.contains(pedidos[indice].id),
-              onDescartar: () => widget.pedidoRepository.descartarRechazado(
-                pedidos[indice].id,
-              ),
-              onCancelar: () => _cancelar(pedidos[indice]),
-            ),
-          );
-        },
+          ),
+          Expanded(child: _lista()),
+        ],
       ),
+    );
+  }
+
+  Widget _lista() {
+    return StreamBuilder<List<Pedido>>(
+      stream: _pedidos,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const EmptyView(
+            icono: Icons.error_outline,
+            mensaje: 'No se pudieron leer tus pedidos.',
+          );
+        }
+        final todos = snapshot.data;
+        if (todos == null) return const LoadingView();
+        if (todos.isEmpty) {
+          return const EmptyView(
+            icono: Icons.receipt_long_outlined,
+            mensaje: 'Aún no tienes pedidos.',
+          );
+        }
+        final pedidos = todos
+            .where((pedido) => _filtro.incluye(pedido.estado))
+            .toList();
+        if (pedidos.isEmpty) {
+          return const EmptyView(
+            icono: Icons.filter_list_off,
+            mensaje: 'No hay pedidos con este filtro.',
+          );
+        }
+        return ListView.builder(
+          padding: EdgeInsets.fromLTRB(
+            12,
+            12,
+            12,
+            12 + MediaQuery.paddingOf(context).bottom,
+          ),
+          itemCount: pedidos.length,
+          itemBuilder: (context, indice) => _PedidoCard(
+            pedido: pedidos[indice],
+            cancelando: _cancelando.contains(pedidos[indice].id),
+            onDescartar: () =>
+                widget.pedidoRepository.descartarRechazado(pedidos[indice].id),
+            onCancelar: () => _cancelar(pedidos[indice]),
+          ),
+        );
+      },
     );
   }
 }
