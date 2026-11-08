@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/errores.dart';
+import '../core/registro_errores.dart';
 import '../models/entrega.dart';
 import '../models/estado_pedido.dart';
 import '../models/pedido.dart';
@@ -90,14 +91,14 @@ class EntregaRemoteDataSource {
   }
 }
 
-/// Omite los documentos con formato inválido para no romper la bandeja.
+/// Omite y registra los documentos con formato inválido para no romper la bandeja.
 List<Pedido> pedidosValidos(Map<String, Map<String, dynamic>> documentos) {
   final pedidos = <Pedido>[];
   documentos.forEach((id, data) {
     try {
       pedidos.add(Pedido.fromFirestore(id, data));
-    } on FormatException {
-      return;
+    } on FormatException catch (error, stack) {
+      registrarError(error, stack);
     }
   });
   pedidos.sort((a, b) => a.createdAt.compareTo(b.createdAt));
