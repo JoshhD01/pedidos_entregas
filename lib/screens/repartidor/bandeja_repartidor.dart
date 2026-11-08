@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/errores.dart';
 import '../../core/formato.dart';
+import '../../core/registro_errores.dart';
 import '../../models/estado_pedido.dart';
 import '../../models/pedido.dart';
 import '../../repositories/entrega_repository.dart';
@@ -53,7 +54,8 @@ class _BandejaRepartidorState extends State<BandejaRepartidor> {
       mensaje = error.mensaje;
     } on TimeoutException {
       mensaje = 'Sin conexión. Intenta de nuevo.';
-    } catch (_) {
+    } catch (error, stack) {
+      registrarError(error, stack);
       mensaje = 'No se pudo actualizar el pedido.';
     }
     if (!mounted) return;

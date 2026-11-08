@@ -4,6 +4,7 @@ import '../../models/perfil.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/entrega_repository.dart';
 import '../../widgets/boton_cerrar_sesion.dart';
+import '../../widgets/boton_error_prueba.dart';
 import '../repartidor/bandeja_repartidor.dart';
 
 class InicioRepartidor extends StatelessWidget {
@@ -23,7 +24,10 @@ class InicioRepartidor extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis entregas'),
-        actions: [BotonCerrarSesion(authRepository: authRepository)],
+        actions: [
+          const BotonErrorPrueba(),
+          BotonCerrarSesion(authRepository: authRepository),
+        ],
       ),
       body: BandejaRepartidor(
         repartidorUid: perfil.uid,
