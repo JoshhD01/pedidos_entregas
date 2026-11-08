@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/perfil.dart';
 import '../../repositories/auth_repository.dart';
+import '../../repositories/entrega_repository.dart';
 import '../../repositories/pedido_repository.dart';
 import '../../repositories/producto_repository.dart';
 import 'inicio_cliente.dart';
@@ -15,6 +16,7 @@ class InicioSegunRol extends StatelessWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
+  final EntregaRepository entregaRepository;
 
   const InicioSegunRol({
     super.key,
@@ -22,6 +24,7 @@ class InicioSegunRol extends StatelessWidget {
     required this.authRepository,
     required this.productoRepository,
     required this.pedidoRepository,
+    required this.entregaRepository,
   });
 
   @override
@@ -41,6 +44,7 @@ class InicioSegunRol extends StatelessWidget {
       Rol.repartidor => InicioRepartidor(
         perfil: perfil,
         authRepository: authRepository,
+        entregaRepository: entregaRepository,
       ),
     };
   }
