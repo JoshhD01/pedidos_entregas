@@ -8,6 +8,7 @@ import 'package:pedidos_entregas/models/pedido.dart';
 import 'package:pedidos_entregas/models/perfil.dart';
 import 'package:pedidos_entregas/models/producto.dart';
 import 'package:pedidos_entregas/repositories/auth_repository.dart';
+import 'package:pedidos_entregas/repositories/entrega_repository.dart';
 import 'package:pedidos_entregas/repositories/pedido_repository.dart';
 import 'package:pedidos_entregas/repositories/producto_repository.dart';
 import 'package:pedidos_entregas/screens/auth/login_screen.dart';
@@ -83,10 +84,17 @@ class FakePedidoRepository implements PedidoRepository {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class FakeEntregaRepository implements EntregaRepository {
+  @override
+  Stream<List<Pedido>> observarAsignados(String repartidorUid) =>
+      Stream.value(const []);
+}
+
 Widget app(FakeAuthRepository auth) => PedidosEntregasApp(
   authRepository: auth,
   productoRepository: FakeProductoRepository(),
   pedidoRepository: FakePedidoRepository(),
+  entregaRepository: FakeEntregaRepository(),
 );
 
 Future<void> abrirApp(WidgetTester tester, FakeAuthRepository auth) async {

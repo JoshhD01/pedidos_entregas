@@ -9,10 +9,12 @@ import 'local/pedido_local_data_source.dart';
 import 'local/producto_local_data_source.dart';
 import 'models/perfil.dart';
 import 'remote/auth_remote_data_source.dart';
+import 'remote/entrega_remote_data_source.dart';
 import 'remote/pedido_remote_data_source.dart';
 import 'remote/perfil_remote_data_source.dart';
 import 'remote/producto_remote_data_source.dart';
 import 'repositories/auth_repository.dart';
+import 'repositories/entrega_repository.dart';
 import 'repositories/pedido_repository.dart';
 import 'repositories/producto_repository.dart';
 import 'screens/auth/login_screen.dart';
@@ -45,11 +47,16 @@ Future<void> main() async {
     remote: PedidoRemoteDataSource(FirebaseFirestore.instance),
   );
 
+  final entregaRepository = EntregaRepositoryImpl(
+    remote: EntregaRemoteDataSource(FirebaseFirestore.instance),
+  );
+
   runApp(
     PedidosEntregasApp(
       authRepository: authRepository,
       productoRepository: productoRepository,
       pedidoRepository: pedidoRepository,
+      entregaRepository: entregaRepository,
     ),
   );
 }
@@ -58,12 +65,14 @@ class PedidosEntregasApp extends StatelessWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
+  final EntregaRepository entregaRepository;
 
   const PedidosEntregasApp({
     super.key,
     required this.authRepository,
     required this.productoRepository,
     required this.pedidoRepository,
+    required this.entregaRepository,
   });
 
   @override
@@ -78,6 +87,7 @@ class PedidosEntregasApp extends StatelessWidget {
         authRepository: authRepository,
         productoRepository: productoRepository,
         pedidoRepository: pedidoRepository,
+        entregaRepository: entregaRepository,
       ),
     );
   }
@@ -88,12 +98,14 @@ class RaizSesion extends StatefulWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
+  final EntregaRepository entregaRepository;
 
   const RaizSesion({
     super.key,
     required this.authRepository,
     required this.productoRepository,
     required this.pedidoRepository,
+    required this.entregaRepository,
   });
 
   @override
@@ -126,6 +138,7 @@ class _RaizSesionState extends State<RaizSesion> {
           authRepository: widget.authRepository,
           productoRepository: widget.productoRepository,
           pedidoRepository: widget.pedidoRepository,
+          entregaRepository: widget.entregaRepository,
         );
       },
     );
@@ -138,6 +151,7 @@ class CargaPerfil extends StatefulWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
+  final EntregaRepository entregaRepository;
 
   const CargaPerfil({
     super.key,
@@ -145,6 +159,7 @@ class CargaPerfil extends StatefulWidget {
     required this.authRepository,
     required this.productoRepository,
     required this.pedidoRepository,
+    required this.entregaRepository,
   });
 
   @override
@@ -191,6 +206,7 @@ class _CargaPerfilState extends State<CargaPerfil> {
           authRepository: widget.authRepository,
           productoRepository: widget.productoRepository,
           pedidoRepository: widget.pedidoRepository,
+          entregaRepository: widget.entregaRepository,
         );
       },
     );
