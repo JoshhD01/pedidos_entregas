@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/errores.dart';
 import '../../core/formato.dart';
@@ -71,6 +72,23 @@ class _BandejaRepartidorState extends State<BandejaRepartidor> {
     'Recorrido iniciado.',
   );
 
+  Future<void> _entregar(Pedido pedido) async {
+    final codigo = await showDialog<String>(
+      context: context,
+      builder: (_) => const _DialogoCodigo(),
+    );
+    if (codigo == null) return;
+    await _procesar(
+      pedido,
+      () => widget.entregaRepository.entregar(
+        pedido.id,
+        widget.repartidorUid,
+        codigo,
+      ),
+      'Pedido entregado.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Pedido>>(
@@ -108,7 +126,13 @@ class _BandejaRepartidorState extends State<BandejaRepartidor> {
           children: [
             if (enCurso.isNotEmpty) ...[
               const _Titulo('En curso'),
-              for (final pedido in enCurso) _EntregaCard(pedido: pedido),
+              for (final pedido in enCurso)
+                _EntregaCard(
+                  pedido: pedido,
+                  textoBoton: 'Entregar',
+                  ocupado: _procesando.contains(pedido.id),
+                  onPressed: () => _entregar(pedido),
+                ),
             ],
             if (asignados.isNotEmpty) ...[
               const _Titulo('Asignados'),
@@ -195,6 +219,61 @@ class _EntregaCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DialogoCodigo extends StatefulWidget {
+  const _DialogoCodigo();
+
+  @override
+  State<_DialogoCodigo> createState() => _DialogoCodigoState();
+}
+
+class _DialogoCodigoState extends State<_DialogoCodigo> {
+  final _formulario = GlobalKey<FormState>();
+  final _codigo = TextEditingController();
+
+  @override
+  void dispose() {
+    _codigo.dispose();
+    super.dispose();
+  }
+
+  void _confirmar() {
+    if (_formulario.currentState!.validate()) {
+      Navigator.of(context).pop(_codigo.text);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Código de recepción'),
+      content: Form(
+        key: _formulario,
+        child: TextFormField(
+          controller: _codigo,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(
+            labelText: 'Código que dicta el cliente',
+          ),
+          validator: (valor) => valor != null && valor.length == 6
+              ? null
+              : 'El código tiene 6 dígitos.',
+          onFieldSubmitted: (_) => _confirmar(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _confirmar, child: const Text('Entregar')),
+      ],
     );
   }
 }

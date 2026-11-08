@@ -38,6 +38,16 @@ service cloud.firestore {
       match /privado/{doc} {
         allow read, write: if autenticado();
       }
+
+      // Código que digita el repartidor: solo se acepta si coincide con privado/codigo.
+      match /entrega/{doc} {
+        allow create: if autenticado()
+          && doc == 'codigo'
+          && get(/databases/$(database)/documents/pedidos/$(id)).data.repartidorUid == request.auth.uid
+          && get(/databases/$(database)/documents/pedidos/$(id)).data.estado == 'EN_CAMINO'
+          && request.resource.data.codigo == get(/databases/$(database)/documents/pedidos/$(id)/privado/codigo).data.codigo;
+        allow read, update, delete: if false;
+      }
     }
   }
 }

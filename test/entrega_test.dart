@@ -54,12 +54,24 @@ class FakeEntregaRepository implements EntregaRepository {
   var controlador = StreamController<List<Pedido>>();
   final pedidos = <String>[];
   final iniciados = <String>[];
+  final entregas = <(String, String)>[];
   Completer<void>? espera;
   Object? error;
 
   @override
   Future<void> iniciarRecorrido(String pedidoId, String repartidorUid) async {
     iniciados.add(pedidoId);
+    await espera?.future;
+    if (error != null) throw error!;
+  }
+
+  @override
+  Future<void> entregar(
+    String pedidoId,
+    String repartidorUid,
+    String codigo,
+  ) async {
+    entregas.add((pedidoId, codigo));
     await espera?.future;
     if (error != null) throw error!;
   }
@@ -79,6 +91,12 @@ class FakeRemote implements EntregaRemoteDataSource {
   @override
   Future<void> iniciarRecorrido(String pedidoId, String repartidorUid) {
     llamadas.add((pedidoId, repartidorUid));
+    return respuesta.future;
+  }
+
+  @override
+  Future<void> entregar(String pedidoId, String repartidorUid, String codigo) {
+    llamadas.add((pedidoId, codigo));
     return respuesta.future;
   }
 
@@ -315,6 +333,176 @@ void main() {
 
       expect(find.text('No se pudo actualizar el pedido.'), findsOneWidget);
       expect(find.textContaining('permission-denied'), findsNothing);
+    });
+  });
+
+  group('validarEntrega y validarCodigo', () {
+    test('permite entregar un pedido EN_CAMINO asignado', () {
+      validarEntrega(pedido('1', EstadoPedido.enCamino), 'repartidor-1');
+    });
+
+    test('rechaza un pedido de otro repartidor', () {
+      expect(
+        () => validarEntrega(pedido('1', EstadoPedido.enCamino), 'otro'),
+        throwsA(isA<ReglaDeNegocioException>()),
+      );
+    });
+
+    test('rechaza entregar sin pasar por EN_CAMINO', () {
+      for (final estado in EstadoPedido.values) {
+        if (estado == EstadoPedido.enCamino) continue;
+        expect(
+          () => validarEntrega(pedido('1', estado), 'repartidor-1'),
+          throwsA(isA<ReglaDeNegocioException>()),
+          reason: estado.valor,
+        );
+      }
+    });
+
+    test('el código tiene exactamente 6 dígitos', () {
+      validarCodigo('012345');
+      for (final codigo in ['', '12345', '1234567', '12a456', ' 12345']) {
+        expect(
+          () => validarCodigo(codigo),
+          throwsA(isA<ReglaDeNegocioException>()),
+          reason: codigo,
+        );
+      }
+    });
+  });
+
+  group('EntregaRepositoryImpl.entregar', () {
+    test('envía el código digitado', () async {
+      final remote = FakeRemote()..respuesta.complete();
+      await EntregaRepositoryImpl(
+        remote: remote,
+      ).entregar('p-1', 'repartidor-1', '123456');
+
+      expect(remote.llamadas, [('p-1', '123456')]);
+    });
+
+    test('un código mal formado no llega a Firestore', () async {
+      final remote = FakeRemote();
+
+      await expectLater(
+        EntregaRepositoryImpl(
+          remote: remote,
+        ).entregar('p-1', 'repartidor-1', '12'),
+        throwsA(isA<ReglaDeNegocioException>()),
+      );
+      expect(remote.llamadas, isEmpty);
+    });
+
+    test('el rechazo de las reglas se muestra como código incorrecto', () {
+      final remote = FakeRemote()
+        ..respuesta.completeError(
+          FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'permission-denied',
+          ),
+        );
+
+      expect(
+        EntregaRepositoryImpl(
+          remote: remote,
+        ).entregar('p-1', 'repartidor-1', '123456'),
+        throwsA(
+          isA<ReglaDeNegocioException>().having(
+            (e) => e.mensaje,
+            'mensaje',
+            'Código incorrecto.',
+          ),
+        ),
+      );
+    });
+
+    test('otros errores de Firestore no se confunden con el código', () {
+      final remote = FakeRemote()
+        ..respuesta.completeError(
+          FirebaseException(plugin: 'cloud_firestore', code: 'unavailable'),
+        );
+
+      expect(
+        EntregaRepositoryImpl(
+          remote: remote,
+        ).entregar('p-1', 'repartidor-1', '123456'),
+        throwsA(isA<FirebaseException>()),
+      );
+    });
+
+    test('sin red termina con TimeoutException', () {
+      final repo = EntregaRepositoryImpl(
+        remote: FakeRemote(),
+        tiempoLimite: const Duration(milliseconds: 10),
+      );
+
+      expect(
+        repo.entregar('p-1', 'repartidor-1', '123456'),
+        throwsA(isA<TimeoutException>()),
+      );
+    });
+  });
+
+  group('entregar en la bandeja', () {
+    Future<FakeEntregaRepository> abrirEnCamino(WidgetTester tester) async {
+      final repo = FakeEntregaRepository();
+      await tester.pumpWidget(bandeja(repo));
+      repo.controlador.add([pedido('1', EstadoPedido.enCamino)]);
+      await tester.pump();
+      await tester.tap(find.text('Entregar'));
+      await tester.pumpAndSettle();
+      return repo;
+    }
+
+    testWidgets('un código incompleto no se envía', (tester) async {
+      final repo = await abrirEnCamino(tester);
+
+      await tester.enterText(find.byType(TextFormField), '123');
+      await tester.tap(find.widgetWithText(FilledButton, 'Entregar').last);
+      await tester.pump();
+
+      expect(find.text('El código tiene 6 dígitos.'), findsOneWidget);
+      expect(repo.entregas, isEmpty);
+    });
+
+    testWidgets('el campo solo acepta dígitos', (tester) async {
+      await abrirEnCamino(tester);
+
+      await tester.enterText(find.byType(TextFormField), '12ab34');
+
+      expect(find.text('1234'), findsOneWidget);
+    });
+
+    testWidgets('con el código envía la entrega y avisa', (tester) async {
+      final repo = await abrirEnCamino(tester);
+
+      await tester.enterText(find.byType(TextFormField), '914190');
+      await tester.tap(find.widgetWithText(FilledButton, 'Entregar').last);
+      await tester.pumpAndSettle();
+
+      expect(repo.entregas, [('1', '914190')]);
+      expect(find.text('Pedido entregado.'), findsOneWidget);
+    });
+
+    testWidgets('código incorrecto se muestra al repartidor', (tester) async {
+      final repo = await abrirEnCamino(tester);
+      repo.error = const ReglaDeNegocioException('Código incorrecto.');
+
+      await tester.enterText(find.byType(TextFormField), '000000');
+      await tester.tap(find.widgetWithText(FilledButton, 'Entregar').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Código incorrecto.'), findsOneWidget);
+    });
+
+    testWidgets('cancelar no envía nada', (tester) async {
+      final repo = await abrirEnCamino(tester);
+
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+
+      expect(repo.entregas, isEmpty);
+      expect(find.byType(AlertDialog), findsNothing);
     });
   });
 }
