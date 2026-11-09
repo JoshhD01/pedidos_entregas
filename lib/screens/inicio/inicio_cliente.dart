@@ -110,6 +110,7 @@ class _InicioClienteState extends State<InicioCliente> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Pedido creado.'),
+        persist: false,
         action: SnackBarAction(label: 'Ver', onPressed: _abrirMisPedidos),
       ),
     );

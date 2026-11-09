@@ -11,7 +11,10 @@ class BotonCerrarSesion extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       tooltip: 'Cerrar sesión',
-      onPressed: authRepository.cerrarSesion,
+      onPressed: () {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        authRepository.cerrarSesion();
+      },
       icon: const Icon(Icons.logout),
     );
   }
