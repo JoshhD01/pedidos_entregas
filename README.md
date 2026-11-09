@@ -6,23 +6,53 @@ Versión: `1.0.0+1` (se actualiza al generar el APK final).
 
 ## Integrantes
 
-_Pendiente (Josué)._
+Tomás Córdoba Urquijo y Josué Gómez Granda. Desarrollo Móvil, Universidad de Medellín, 2026-2. Caso G61-3.
 
 ## Roles
 
-_Pendiente (Josué)._
+| Rol | Qué hace |
+|---|---|
+| Cliente | Consulta el catálogo, arma un pedido, lo sigue en Mis pedidos y lo cancela mientras esté `CREADO` |
+| Operador | Confirma o rechaza pedidos, registra la preparación y asigna repartidor |
+| Repartidor | Ve los pedidos que le asignaron, inicia el recorrido y registra la entrega con el código del cliente |
+
+Quien se registra en la app queda como `cliente`. Operador y repartidor se asignan a mano en Firebase Console, cambiando `rol` en `perfiles/{uid}`. El repartidor además necesita el documento `repartidores/{uid}` con `pedidoEnCamino: null`.
 
 ## Ejecución
 
-_Pendiente (Josué): `flutter pub get`, `build_runner`, `google-services.json`, `flutter run`._
+Requiere Flutter 3.44.9 y un emulador o dispositivo Android con internet.
+
+```sh
+flutter pub get
+flutter run -d <id-del-dispositivo>
+```
+
+- `android/app/google-services.json` y `lib/firebase_options.dart` ya están en el repositorio: son configuración de cliente, no secretos.
+- `lib/local/app_database.g.dart` también está incluido. `build_runner` solo hace falta al cambiar tablas de Drift:
+
+  ```sh
+  dart run build_runner build --delete-conflicting-outputs
+  ```
+
+- Validación: `flutter analyze` y `flutter test`.
 
 ## Firebase
 
-_Pendiente (Josué): proyecto, Authentication, Firestore, reglas y Crashlytics._
+Proyecto `pedidosentregas`:
+
+- **Authentication** con correo y contraseña.
+- **Cloud Firestore** con las colecciones del modelo de datos.
+- **Reglas** en `firestore.rules`, por rol, dueño y campos: cada transición de estado solo acepta los campos de su acción, nadie cambia su rol ni el `clienteUid`, no hay lectura ni escritura global y no se borra nada. Se publican pegando el archivo en Firebase Console → Firestore → Reglas.
+- **Crashlytics** para errores (ver Datos y Crashlytics).
 
 ## Endpoint HTTP
 
-_Pendiente (Josué)._
+`GET https://dummyjson.com/c/59f3-0f90-41f6-952e` devuelve el catálogo: 8 productos con `id`, `nombre`, `categoria`, `precio` y `descripcion` (copia en `datos/productos.json`).
+
+- Tiempo límite de 10 segundos.
+- 404, error del servidor, sin conexión, tiempo agotado o formato inválido muestran un mensaje y el botón Reintentar.
+- La última respuesta se guarda en Drift para ver el catálogo sin conexión.
+- El precio del catálogo es solo referencia: el precio y el stock que valen son los de `productos/{id}` en Firestore (`datos/productos_firestore.json`).
 
 ## Modelo de datos
 
@@ -76,11 +106,22 @@ El filtro de Mis pedidos (todos, activos, terminados) se guarda con SharedPrefer
 
 ## Datos y Crashlytics
 
-_Pendiente (Josué)._
+**Datos:** todos son ficticios. Los productos de Firestore se cargan desde `datos/productos_firestore.json`; `p001` tiene stock 1 para probar la falta de stock. Las cuentas de prueba (una por rol) se entregan solo por el medio privado del docente y no están en este repositorio.
+
+**Crashlytics:**
+
+- `main.dart` envía a Crashlytics los errores de Flutter (`FlutterError.onError`) y los que no se capturan (`PlatformDispatcher.onError`).
+- Los errores inesperados que la app sí maneja (por ejemplo, un documento con formato inválido o un fallo raro al sincronizar) se registran como no fatales con `registrarError()`, en `lib/core/registro_errores.dart`.
+- Los errores de negocio y de red no se envían: se muestran al usuario con un mensaje.
+- En debug, la barra del repartidor tiene un botón de error de prueba. No aparece en release. Los reportes se suben al volver a abrir la app y se ven en Firebase Console → Crashlytics, filtrando por eventos no fatales.
 
 ## Firma del APK
 
-_Pendiente (Josué)._
+```sh
+flutter build apk --release
+```
+
+El APK queda en `build/app/outputs/flutter-apk/app-release.apk`. Se firma con la clave de depuración de Android (`signingConfig = debug` en `android/app/build.gradle.kts`), así que se instala en cualquier dispositivo sin configurar claves.
 
 ## Límites conocidos
 
