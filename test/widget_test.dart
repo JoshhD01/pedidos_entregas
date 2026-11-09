@@ -299,6 +299,28 @@ void main() {
       });
     }
 
+    testWidgets('cerrar sesión quita los avisos de la cuenta anterior', (
+      tester,
+    ) async {
+      await abrirConSesion(tester, FakeAuthRepository()..rol = Rol.cliente);
+      ScaffoldMessenger.of(
+        tester.element(find.byType(InicioCliente)),
+      ).showSnackBar(
+        SnackBar(
+          content: const Text('Pedido creado.'),
+          action: SnackBarAction(label: 'Ver', onPressed: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Pedido creado.'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Cerrar sesión'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.text('Pedido creado.'), findsNothing);
+    });
+
     testWidgets('al cambiar a una cuenta de otro rol cambia el inicio', (
       tester,
     ) async {
