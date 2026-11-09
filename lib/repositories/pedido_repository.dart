@@ -10,6 +10,7 @@ import '../models/estado_pedido.dart';
 import '../models/estado_sync.dart';
 import '../models/linea_pedido.dart';
 import '../models/pedido.dart';
+import '../models/perfil.dart';
 import '../remote/pedido_remote_data_source.dart';
 
 class ResultadoSync {
@@ -58,6 +59,19 @@ abstract class PedidoRepository {
 
   /// Pasa un pedido `EstadoPedido.creado` a `EstadoPedido.rechazado`.
   Future<void> rechazarPedido(String pedidoId);
+
+  /// `EstadoPedido.confirmado` → `EstadoPedido.preparando`, en una transacción.
+  Future<void> prepararPedido(String pedidoId);
+
+  /// `EstadoPedido.preparando` → `EstadoPedido.listo`, en una transacción.
+  Future<void> marcarListo(String pedidoId);
+
+  /// Asigna o cambia el repartidor de un pedido `EstadoPedido.listo`.
+  /// El repartidor debe tener `repartidores/{uid}`.
+  Future<void> asignarRepartidor(String pedidoId, String repartidorUid);
+
+  /// Perfiles con `Rol.repartidor`.
+  Future<List<Perfil>> listarRepartidores();
 }
 
 class PedidoRepositoryImpl implements PedidoRepository {
@@ -158,7 +172,7 @@ class PedidoRepositoryImpl implements PedidoRepository {
       local.borrarRechazado(pedidoId);
 
   @override
-  Stream<List<Pedido>> observarBandejaOperador() => remote.observarCreados();
+  Stream<List<Pedido>> observarBandejaOperador() => remote.observarBandeja();
 
   @override
   Future<void> confirmarPedido(String pedidoId) =>
@@ -167,6 +181,22 @@ class PedidoRepositoryImpl implements PedidoRepository {
   @override
   Future<void> rechazarPedido(String pedidoId) =>
       remote.rechazar(pedidoId).timeout(tiempoLimite);
+
+  @override
+  Future<void> prepararPedido(String pedidoId) =>
+      remote.avanzar(pedidoId, EstadoPedido.preparando).timeout(tiempoLimite);
+
+  @override
+  Future<void> marcarListo(String pedidoId) =>
+      remote.avanzar(pedidoId, EstadoPedido.listo).timeout(tiempoLimite);
+
+  @override
+  Future<void> asignarRepartidor(String pedidoId, String repartidorUid) =>
+      remote.asignarRepartidor(pedidoId, repartidorUid).timeout(tiempoLimite);
+
+  @override
+  Future<List<Perfil>> listarRepartidores() =>
+      remote.listarRepartidores().timeout(tiempoLimite);
 
   String _generarCodigo() =>
       _random.nextInt(1000000).toString().padLeft(6, '0');

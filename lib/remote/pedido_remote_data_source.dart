@@ -1,10 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/errores.dart';
+import '../core/registro_errores.dart';
 import '../models/confirmacion.dart';
 import '../models/estado_pedido.dart';
 import '../models/pedido.dart';
+import '../models/perfil.dart';
 import '../models/producto.dart';
+import '../models/transiciones.dart';
+import 'entrega_remote_data_source.dart';
 
 class PedidoRemoteDataSource {
   final FirebaseFirestore firestore;
@@ -25,18 +29,73 @@ class PedidoRemoteDataSource {
     });
   }
 
-  Stream<List<Pedido>> observarCreados() {
+  /// Pedidos que todavía dependen del operador.
+  Stream<List<Pedido>> observarBandeja() {
     return firestore
         .collection('pedidos')
-        .where('estado', isEqualTo: EstadoPedido.creado.valor)
+        .where(
+          'estado',
+          whereIn: [
+            EstadoPedido.creado.valor,
+            EstadoPedido.confirmado.valor,
+            EstadoPedido.preparando.valor,
+            EstadoPedido.listo.valor,
+          ],
+        )
         .snapshots()
-        .map((consulta) {
-          final pedidos = consulta.docs
-              .map((doc) => Pedido.fromFirestore(doc.id, doc.data()))
-              .toList();
-          pedidos.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-          return pedidos;
-        });
+        .map(
+          (consulta) => pedidosValidos({
+            for (final doc in consulta.docs) doc.id: doc.data(),
+          }),
+        );
+  }
+
+  /// Relee el estado en la transacción: si otro rol lo cambió, se rechaza.
+  Future<void> avanzar(String pedidoId, EstadoPedido hacia) {
+    final referencia = firestore.collection('pedidos').doc(pedidoId);
+    return firestore.runTransaction((transaccion) async {
+      validarTransicion(await _leer(transaccion, referencia), hacia);
+      transaccion.update(referencia, {
+        'estado': hacia.valor,
+        'updatedAt': Timestamp.now(),
+      });
+    });
+  }
+
+  /// Solo se asigna a quien tiene `repartidores/{uid}`: sin él no puede iniciar el recorrido.
+  Future<void> asignarRepartidor(String pedidoId, String repartidorUid) {
+    final referencia = firestore.collection('pedidos').doc(pedidoId);
+    final repartidor = firestore.collection('repartidores').doc(repartidorUid);
+    return firestore.runTransaction((transaccion) async {
+      final pedido = await _leer(transaccion, referencia);
+      if (!(await transaccion.get(repartidor)).exists) {
+        throw const ReglaDeNegocioException(
+          'Ese repartidor no está habilitado.',
+        );
+      }
+      validarAsignacion(pedido);
+      transaccion.update(referencia, {
+        'repartidorUid': repartidorUid,
+        'updatedAt': Timestamp.now(),
+      });
+    });
+  }
+
+  Future<List<Perfil>> listarRepartidores() async {
+    final consulta = await firestore
+        .collection('perfiles')
+        .where('rol', isEqualTo: Rol.repartidor.valor)
+        .get();
+    final repartidores = <Perfil>[];
+    for (final doc in consulta.docs) {
+      try {
+        repartidores.add(Perfil.fromFirestore(doc.id, doc.data()));
+      } on FormatException catch (error, stack) {
+        registrarError(error, stack);
+      }
+    }
+    repartidores.sort((a, b) => a.nombre.compareTo(b.nombre));
+    return repartidores;
   }
 
   /// En una transacción: lee productos, recalcula, descuenta stock y confirma.
@@ -78,8 +137,7 @@ class PedidoRemoteDataSource {
     });
   }
 
-  /// Solo un pedido en CREADO se puede confirmar o rechazar.
-  Future<Pedido> _leerCreado(
+  Future<Pedido> _leer(
     Transaction transaccion,
     DocumentReference<Map<String, dynamic>> referencia,
   ) async {
@@ -88,7 +146,15 @@ class PedidoRemoteDataSource {
     if (data == null) {
       throw const ReglaDeNegocioException('El pedido no existe.');
     }
-    final pedido = Pedido.fromFirestore(doc.id, data);
+    return Pedido.fromFirestore(doc.id, data);
+  }
+
+  /// Solo un pedido en CREADO se puede confirmar o rechazar.
+  Future<Pedido> _leerCreado(
+    Transaction transaccion,
+    DocumentReference<Map<String, dynamic>> referencia,
+  ) async {
+    final pedido = await _leer(transaccion, referencia);
     if (pedido.estado != EstadoPedido.creado) {
       throw const ReglaDeNegocioException('El pedido ya fue procesado.');
     }

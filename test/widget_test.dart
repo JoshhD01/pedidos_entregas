@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pedidos_entregas/core/errores.dart';
 import 'package:pedidos_entregas/main.dart';
+import 'package:pedidos_entregas/models/estado_pedido.dart';
+import 'package:pedidos_entregas/models/estado_sync.dart';
 import 'package:pedidos_entregas/models/pedido.dart';
 import 'package:pedidos_entregas/models/perfil.dart';
 import 'package:pedidos_entregas/models/producto.dart';
@@ -77,8 +79,27 @@ class FakeProductoRepository implements ProductoRepository {
 }
 
 class FakePedidoRepository implements PedidoRepository {
+  List<Pedido> bandeja = const [];
+  List<Perfil> repartidores = const [];
+  final llamadas = <String>[];
+
   @override
-  Stream<List<Pedido>> observarBandejaOperador() => Stream.value(const []);
+  Stream<List<Pedido>> observarBandejaOperador() => Stream.value(bandeja);
+
+  @override
+  Future<List<Perfil>> listarRepartidores() async => repartidores;
+
+  @override
+  Future<void> prepararPedido(String pedidoId) async =>
+      llamadas.add('preparar $pedidoId');
+
+  @override
+  Future<void> marcarListo(String pedidoId) async =>
+      llamadas.add('listo $pedidoId');
+
+  @override
+  Future<void> asignarRepartidor(String pedidoId, String repartidorUid) async =>
+      llamadas.add('asignar $pedidoId $repartidorUid');
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -395,6 +416,102 @@ void main() {
         find.widgetWithText(ElevatedButton, 'Crear cuenta'),
         findsOneWidget,
       );
+    });
+  });
+
+  group('bandeja del operador', () {
+    Pedido pedido(String id, EstadoPedido estado, {String? repartidorUid}) =>
+        Pedido(
+          id: id,
+          clienteUid: 'cliente-1',
+          lineas: const [],
+          direccion: 'Calle $id',
+          estado: estado,
+          repartidorUid: repartidorUid,
+          createdAt: DateTime(2026, 11, 8),
+          updatedAt: DateTime(2026, 11, 8),
+          estadoSync: EstadoSync.sincronizado,
+        );
+
+    Future<FakePedidoRepository> abrir(
+      WidgetTester tester,
+      List<Pedido> bandeja,
+    ) async {
+      final repo = FakePedidoRepository()
+        ..bandeja = bandeja
+        ..repartidores = const [
+          Perfil(
+            uid: 'r1',
+            nombre: 'Rita',
+            email: 'r@b.co',
+            rol: Rol.repartidor,
+          ),
+        ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: InicioOperador(
+            perfil: const Perfil(
+              uid: 'op',
+              nombre: 'Op',
+              email: 'o@b.co',
+              rol: Rol.operador,
+            ),
+            authRepository: FakeAuthRepository(),
+            pedidoRepository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return repo;
+    }
+
+    testWidgets('cada estado muestra su acción', (tester) async {
+      tester.view.physicalSize = const Size(400, 2000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await abrir(tester, [
+        pedido('1', EstadoPedido.creado),
+        pedido('2', EstadoPedido.confirmado),
+        pedido('3', EstadoPedido.preparando),
+        pedido('4', EstadoPedido.listo),
+        pedido('5', EstadoPedido.listo, repartidorUid: 'r1'),
+      ]);
+
+      expect(find.text('Confirmar'), findsOneWidget);
+      expect(find.text('Rechazar'), findsOneWidget);
+      expect(find.text('Empezar preparación'), findsOneWidget);
+      expect(find.text('Marcar listo'), findsOneWidget);
+      expect(find.text('Asignar repartidor'), findsOneWidget);
+      expect(find.text('Cambiar repartidor'), findsOneWidget);
+      expect(find.text('Repartidor: Rita'), findsOneWidget);
+    });
+
+    testWidgets('preparar y marcar listo llaman al repositorio', (
+      tester,
+    ) async {
+      final repo = await abrir(tester, [
+        pedido('2', EstadoPedido.confirmado),
+        pedido('3', EstadoPedido.preparando),
+      ]);
+
+      await tester.tap(find.text('Empezar preparación'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Marcar listo'));
+      await tester.pumpAndSettle();
+
+      expect(repo.llamadas, ['preparar 2', 'listo 3']);
+    });
+
+    testWidgets('asignar elige un repartidor de la lista', (tester) async {
+      final repo = await abrir(tester, [pedido('4', EstadoPedido.listo)]);
+
+      await tester.tap(find.text('Asignar repartidor'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rita'));
+      await tester.pumpAndSettle();
+
+      expect(repo.llamadas, ['asignar 4 r1']);
+      expect(find.text('Pedido asignado a Rita.'), findsOneWidget);
     });
   });
 }
