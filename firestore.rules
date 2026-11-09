@@ -1,14 +1,32 @@
 rules_version = '2';
 
-// Reglas base del sprint: perfil protegido y el resto solo para autenticados.
-// Pendiente: restringir productos, pedidos, repartidores y privado por rol y dueño.
-// No usar un comodín general /{document=**}: las reglas se suman y anularía
-// las protecciones del perfil.
+// Reglas por rol, dueño y campos. Sin comodín general /{document=**}:
+// las reglas se suman y anularía las protecciones.
 service cloud.firestore {
   match /databases/{database}/documents {
 
     function autenticado() {
       return request.auth != null;
+    }
+
+    function rol() {
+      return get(/databases/$(database)/documents/perfiles/$(request.auth.uid)).data.rol;
+    }
+
+    function esOperador() {
+      return autenticado() && rol() == 'operador';
+    }
+
+    function esRepartidor() {
+      return autenticado() && rol() == 'repartidor';
+    }
+
+    function soloCambia(campos) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(campos);
+    }
+
+    function pedidoDespues(id) {
+      return getAfter(/databases/$(database)/documents/pedidos/$(id)).data;
     }
 
     match /perfiles/{uid} {
@@ -24,19 +42,140 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // El stock solo baja al confirmar; reponer se hace en Console.
     match /productos/{id} {
-      allow read, write: if autenticado();
+      allow read: if autenticado();
+      allow update: if esOperador()
+        && soloCambia(['stock'])
+        && request.resource.data.stock is int
+        && request.resource.data.stock >= 0
+        && request.resource.data.stock < resource.data.stock;
+      allow create, delete: if false;
     }
 
+    // Se crea solo en Console. pedidoEnCamino: null -> id al iniciar, id -> null al entregar.
     match /repartidores/{uid} {
-      allow read, write: if autenticado();
+      allow read: if autenticado() && (request.auth.uid == uid || esOperador());
+      allow update: if autenticado()
+        && request.auth.uid == uid
+        && soloCambia(['pedidoEnCamino'])
+        && (ocupa(uid) || libera());
+      allow create, delete: if false;
+
+      function ocupa(uid) {
+        let nuevo = request.resource.data.pedidoEnCamino;
+        return resource.data.get('pedidoEnCamino', null) == null
+          && nuevo is string
+          && pedidoDespues(nuevo).estado == 'EN_CAMINO'
+          && pedidoDespues(nuevo).repartidorUid == uid;
+      }
+
+      function libera() {
+        let anterior = resource.data.get('pedidoEnCamino', null);
+        return anterior is string
+          && request.resource.data.pedidoEnCamino == null
+          && pedidoDespues(anterior).estado == 'ENTREGADO';
+      }
     }
 
     match /pedidos/{id} {
-      allow read, write: if autenticado();
+      // resource == null: la transacción del cliente lee el pedido antes de crearlo.
+      allow read: if autenticado() && (
+        resource == null
+        || resource.data.clienteUid == request.auth.uid
+        || resource.data.repartidorUid == request.auth.uid
+        || esOperador()
+      );
 
+      allow create: if autenticado()
+        && rol() == 'cliente'
+        && request.resource.data.keys().hasOnly(
+             ['clienteUid', 'lineas', 'total', 'direccion', 'estado',
+              'repartidorUid', 'createdAt', 'updatedAt'])
+        && request.resource.data.clienteUid == request.auth.uid
+        && request.resource.data.estado == 'CREADO'
+        && request.resource.data.repartidorUid == null
+        && request.resource.data.lineas is list
+        && request.resource.data.lineas.size() >= 1
+        && request.resource.data.lineas.size() <= 5;
+
+      allow update: if autenticado() && (
+        clienteCancela()
+        || operadorConfirma()
+        || operadorCambiaEstado()
+        || operadorAsigna()
+        || repartidorInicia()
+        || repartidorEntrega()
+      );
+
+      allow delete: if false;
+
+      function cambio(desde, hacia) {
+        return resource.data.estado == desde && request.resource.data.estado == hacia;
+      }
+
+      function clienteCancela() {
+        return resource.data.clienteUid == request.auth.uid
+          && cambio('CREADO', 'CANCELADO')
+          && soloCambia(['estado', 'updatedAt']);
+      }
+
+      // Confirmar recalcula líneas y total con el precio vigente.
+      function operadorConfirma() {
+        return esOperador()
+          && cambio('CREADO', 'CONFIRMADO')
+          && soloCambia(['lineas', 'total', 'estado', 'updatedAt']);
+      }
+
+      function operadorCambiaEstado() {
+        return esOperador()
+          && (cambio('CREADO', 'RECHAZADO')
+            || cambio('CONFIRMADO', 'PREPARANDO')
+            || cambio('PREPARANDO', 'LISTO'))
+          && soloCambia(['estado', 'updatedAt']);
+      }
+
+      // Asigna o reasigna solo en LISTO y a quien tenga repartidores/{uid}.
+      function operadorAsigna() {
+        let nuevo = request.resource.data.repartidorUid;
+        return esOperador()
+          && cambio('LISTO', 'LISTO')
+          && soloCambia(['repartidorUid', 'updatedAt'])
+          && nuevo is string
+          && exists(/databases/$(database)/documents/repartidores/$(nuevo));
+      }
+
+      // Debe ocupar repartidores/{uid} en la misma transacción.
+      function repartidorInicia() {
+        return esRepartidor()
+          && resource.data.repartidorUid == request.auth.uid
+          && cambio('LISTO', 'EN_CAMINO')
+          && soloCambia(['estado', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/repartidores/$(request.auth.uid)).data.pedidoEnCamino == id;
+      }
+
+      // Solo con el código correcto escrito en entrega/codigo en la misma transacción.
+      function repartidorEntrega() {
+        return esRepartidor()
+          && resource.data.repartidorUid == request.auth.uid
+          && cambio('EN_CAMINO', 'ENTREGADO')
+          && soloCambia(['estado', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/pedidos/$(id)/entrega/codigo).data.codigo
+             == get(/databases/$(database)/documents/pedidos/$(id)/privado/codigo).data.codigo;
+      }
+
+      // Código de recepción: solo el cliente dueño, creado junto con el pedido.
       match /privado/{doc} {
-        allow read, write: if autenticado();
+        allow read: if autenticado()
+          && get(/databases/$(database)/documents/pedidos/$(id)).data.clienteUid == request.auth.uid;
+        allow create: if autenticado()
+          && doc == 'codigo'
+          && !exists(/databases/$(database)/documents/pedidos/$(id))
+          && pedidoDespues(id).clienteUid == request.auth.uid
+          && request.resource.data.keys().hasOnly(['codigo'])
+          && request.resource.data.codigo is string
+          && request.resource.data.codigo.size() == 6;
+        allow update, delete: if false;
       }
 
       // Código que digita el repartidor: solo se acepta si coincide con privado/codigo.
@@ -45,6 +184,7 @@ service cloud.firestore {
           && doc == 'codigo'
           && get(/databases/$(database)/documents/pedidos/$(id)).data.repartidorUid == request.auth.uid
           && get(/databases/$(database)/documents/pedidos/$(id)).data.estado == 'EN_CAMINO'
+          && request.resource.data.keys().hasOnly(['codigo'])
           && request.resource.data.codigo == get(/databases/$(database)/documents/pedidos/$(id)/privado/codigo).data.codigo;
         allow read, update, delete: if false;
       }
