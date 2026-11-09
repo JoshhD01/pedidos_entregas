@@ -29,6 +29,40 @@ class PedidoRemoteDataSource {
     });
   }
 
+  /// Pedidos del cliente. `desdeServidor` indica que hay conexión.
+  Stream<({List<Pedido> pedidos, bool desdeServidor})> observarDeCliente(
+    String clienteUid,
+  ) {
+    return firestore
+        .collection('pedidos')
+        .where('clienteUid', isEqualTo: clienteUid)
+        .snapshots(includeMetadataChanges: true)
+        .map(
+          (consulta) => (
+            pedidos: pedidosValidos({
+              for (final doc in consulta.docs) doc.id: doc.data(),
+            }),
+            desdeServidor: !consulta.metadata.isFromCache,
+          ),
+        );
+  }
+
+  /// Solo el dueño y solo en CREADO: si el operador ya lo tomó, gana el operador.
+  Future<void> cancelar(String pedidoId, String clienteUid) {
+    final referencia = firestore.collection('pedidos').doc(pedidoId);
+    return firestore.runTransaction((transaccion) async {
+      final pedido = await _leer(transaccion, referencia);
+      if (pedido.clienteUid != clienteUid) {
+        throw const ReglaDeNegocioException('Este pedido no es tuyo.');
+      }
+      validarTransicion(pedido, EstadoPedido.cancelado);
+      transaccion.update(referencia, {
+        'estado': EstadoPedido.cancelado.valor,
+        'updatedAt': Timestamp.now(),
+      });
+    });
+  }
+
   /// Pedidos que todavía dependen del operador.
   Stream<List<Pedido>> observarBandeja() {
     return firestore

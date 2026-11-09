@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/errores.dart';
+import '../core/registro_errores.dart';
 import '../local/pedido_local_data_source.dart';
 import '../models/estado_pedido.dart';
 import '../models/estado_sync.dart';
@@ -49,6 +50,15 @@ abstract class PedidoRepository {
   /// Borra de Drift un pedido en `EstadoSync.rechazado`.
   Future<void> descartarRechazado(String pedidoId);
 
+  /// Mientras se escuche, copia a Drift el estado remoto de los pedidos del
+  /// cliente. Cada respuesta del servidor (hay red) envía los pendientes.
+  Stream<void> seguirMisPedidos(String clienteUid);
+
+  /// Solo en `EstadoPedido.creado`. Un pendiente se envía primero: sin
+  /// conexión no se cancela, para que el operador no confirme un pedido que
+  /// el cliente ve cancelado. La transacción relee el estado remoto.
+  Future<void> cancelarPedido(String pedidoId, String clienteUid);
+
   /// Pedidos remotos que el operador debe revisar.
   Stream<List<Pedido>> observarBandejaOperador();
 
@@ -90,6 +100,7 @@ class PedidoRepositoryImpl implements PedidoRepository {
   final Duration tiempoLimite;
   final Uuid _uuid = const Uuid();
   final Random _random = Random.secure();
+  final _enCurso = <String, Future<ResultadoSync>>{};
 
   PedidoRepositoryImpl({
     required this.local,
@@ -117,9 +128,15 @@ class PedidoRepositoryImpl implements PedidoRepository {
       codigoRecepcion: _generarCodigo(),
     );
     await local.insertar(pedido);
-    // Envío en segundo plano: si falla, el pedido sigue pendiente.
-    unawaited(sincronizarPendientes(clienteUid).then((_) {}, onError: (_) {}));
+    _enviarEnSegundoPlano(clienteUid);
     return pedido;
+  }
+
+  /// Si falla, el pedido sigue pendiente; solo los errores inesperados se registran.
+  void _enviarEnSegundoPlano(String clienteUid) {
+    unawaited(
+      sincronizarPendientes(clienteUid).then((_) {}, onError: registrarError),
+    );
   }
 
   @override
@@ -127,7 +144,47 @@ class PedidoRepositoryImpl implements PedidoRepository {
       local.observarDe(clienteUid);
 
   @override
-  Future<ResultadoSync> sincronizarPendientes(String clienteUid) async {
+  Stream<void> seguirMisPedidos(String clienteUid) {
+    return remote.observarDeCliente(clienteUid).asyncMap((respuesta) async {
+      await local.aplicarRemotos(clienteUid, respuesta.pedidos);
+      // shortcut: reintenta solo con la app abierta y sesión de cliente; usar WorkManager si se pide envío en segundo plano real.
+      if (respuesta.desdeServidor) _enviarEnSegundoPlano(clienteUid);
+    });
+  }
+
+  @override
+  Future<void> cancelarPedido(String pedidoId, String clienteUid) async {
+    var pedido = await local.buscar(pedidoId, clienteUid);
+    if (pedido == null ||
+        pedido.estado != EstadoPedido.creado ||
+        pedido.estadoSync == EstadoSync.rechazado) {
+      throw const ReglaDeNegocioException(
+        'Solo se puede cancelar un pedido creado.',
+      );
+    }
+    if (pedido.pendingSync) {
+      await sincronizarPendientes(clienteUid);
+      pedido = await local.buscar(pedidoId, clienteUid);
+      if (pedido?.estadoSync != EstadoSync.sincronizado) {
+        throw const ReglaDeNegocioException(
+          'Sin conexión: el pedido aún no llega al servidor. Intenta de nuevo.',
+        );
+      }
+    }
+    await remote.cancelar(pedidoId, clienteUid).timeout(tiempoLimite);
+    await local.cambiarEstado(pedidoId, clienteUid, EstadoPedido.cancelado);
+  }
+
+  /// Un envío en curso se comparte: dos llamadas simultáneas no cuentan doble.
+  @override
+  Future<ResultadoSync> sincronizarPendientes(
+    String clienteUid,
+  ) => _enCurso[clienteUid] ??= _sincronizar(clienteUid).whenComplete(() {
+    // Sin llaves devolvería este mismo Future y whenComplete se esperaría a sí mismo.
+    _enCurso.remove(clienteUid);
+  });
+
+  Future<ResultadoSync> _sincronizar(String clienteUid) async {
     var sincronizados = 0;
     var pendientes = 0;
     var rechazados = 0;
