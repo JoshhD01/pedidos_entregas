@@ -8,6 +8,7 @@ import '../../models/pedido.dart';
 import '../../models/perfil.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/pedido_repository.dart';
+import '../../repositories/preferencias_repository.dart';
 import '../../repositories/producto_repository.dart';
 import '../../widgets/boton_cerrar_sesion.dart';
 import '../catalogo/catalogo_vista.dart';
@@ -19,6 +20,7 @@ class InicioCliente extends StatefulWidget {
   final AuthRepository authRepository;
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
+  final PreferenciasRepository preferenciasRepository;
 
   const InicioCliente({
     super.key,
@@ -26,6 +28,7 @@ class InicioCliente extends StatefulWidget {
     required this.authRepository,
     required this.productoRepository,
     required this.pedidoRepository,
+    required this.preferenciasRepository,
   });
 
   @override
@@ -85,6 +88,7 @@ class _InicioClienteState extends State<InicioCliente> {
       MaterialPageRoute(
         builder: (_) => MisPedidosScreen(
           pedidoRepository: widget.pedidoRepository,
+          preferenciasRepository: widget.preferenciasRepository,
           clienteUid: widget.perfil.uid,
         ),
       ),

@@ -4,6 +4,7 @@ import '../../models/perfil.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/entrega_repository.dart';
 import '../../repositories/pedido_repository.dart';
+import '../../repositories/preferencias_repository.dart';
 import '../../repositories/producto_repository.dart';
 import 'inicio_cliente.dart';
 import 'inicio_operador.dart';
@@ -17,6 +18,7 @@ class InicioSegunRol extends StatelessWidget {
   final ProductoRepository productoRepository;
   final PedidoRepository pedidoRepository;
   final EntregaRepository entregaRepository;
+  final PreferenciasRepository preferenciasRepository;
 
   const InicioSegunRol({
     super.key,
@@ -25,6 +27,7 @@ class InicioSegunRol extends StatelessWidget {
     required this.productoRepository,
     required this.pedidoRepository,
     required this.entregaRepository,
+    required this.preferenciasRepository,
   });
 
   @override
@@ -35,6 +38,7 @@ class InicioSegunRol extends StatelessWidget {
         authRepository: authRepository,
         productoRepository: productoRepository,
         pedidoRepository: pedidoRepository,
+        preferenciasRepository: preferenciasRepository,
       ),
       Rol.operador => InicioOperador(
         perfil: perfil,
