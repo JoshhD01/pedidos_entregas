@@ -2,7 +2,7 @@
 
 App Flutter para Android con tres roles: el cliente arma y sigue sus pedidos, el operador los confirma, prepara y asigna, y el repartidor los entrega con el código de recepción del cliente.
 
-Versión: `1.0.0+1` (se actualiza al generar el APK final).
+Versión: `1.0.0+2`. APK: `G61-3_pedidos_entregas_1.0.0+2.apk`.
 
 ## Integrantes
 
@@ -108,6 +108,21 @@ El filtro de Mis pedidos (todos, activos, terminados) se guarda con SharedPrefer
 
 **Datos:** todos son ficticios. Los productos de Firestore se cargan desde `datos/productos_firestore.json`; `p001` tiene stock 1 para probar la falta de stock. Las cuentas de prueba (una por rol) se entregan solo por el medio privado del docente y no están en este repositorio.
 
+**Datos de prueba en Firestore** (estado al entregar `1.0.0+2`). Hay pedidos en los ocho estados, para recorrer el flujo sin preparar nada:
+
+| Estado | Dirección del pedido | Qué se puede probar |
+|---|---|---|
+| `CREADO` | QA05 Pedido 2 (Hamburguesa clásica) | El operador lo confirma: consume el único stock de `p001`. Un segundo pedido de `p001` muestra la falta de stock |
+| `CONFIRMADO` | QA02 Calle 3 | Empezar preparación |
+| `PREPARANDO` | QA01 Calle 2 | Marcar listo |
+| `LISTO` sin repartidor | QA11 Calle 1 | Asignar repartidor |
+| `EN_CAMINO` | QA05 Pedido 1 | El repartidor lo entrega con el código; mientras tanto no puede iniciar otro recorrido |
+| `ENTREGADO` | Calle Release 1, entre otros | Estado final |
+| `CANCELADO` | Calle 76 | Cancelado por el cliente |
+| `RECHAZADO` | a | Rechazado por el operador |
+
+Para volver a empezar: crear un pedido con la cuenta de cliente y llevarlo por los tres roles; para probar la falta de stock, poner `stock: 1` en `productos/p001` desde Firebase Console. El operador y el repartidor ven estos pedidos desde cualquier teléfono. En Mis pedidos, el cliente solo ve los que se crearon en ese teléfono (ver Límites conocidos).
+
 **Crashlytics:**
 
 - `main.dart` envía a Crashlytics los errores de Flutter (`FlutterError.onError`) y los que no se capturan (`PlatformDispatcher.onError`).
@@ -121,7 +136,7 @@ El filtro de Mis pedidos (todos, activos, terminados) se guarda con SharedPrefer
 flutter build apk --release
 ```
 
-El APK queda en `build/app/outputs/flutter-apk/app-release.apk`. Se firma con la clave de depuración de Android (`signingConfig = debug` en `android/app/build.gradle.kts`), así que se instala en cualquier dispositivo sin configurar claves.
+El APK queda en `build/app/outputs/flutter-apk/app-release.apk`; para entregarlo se renombra con el código del caso y la versión (`G61-3_pedidos_entregas_1.0.0+2.apk`). Se firma con la clave de depuración de Android (`signingConfig = debug` en `android/app/build.gradle.kts`), así que se instala en cualquier dispositivo sin configurar claves.
 
 ## Límites conocidos
 
